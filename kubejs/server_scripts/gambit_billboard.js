@@ -74,21 +74,17 @@ function buildBillboardText(mode) {
   } else if (mode === 'elim_session') {
     sorted    = getSortedEntriesBySessionElimScore();
     title     = '\u2550\u2550 Elim Today \u2550\u2550';
-    getScore  = function(s) { return (((0.5*(s.damage||0))+(100*(s.kills||0))+(50*(s.assists||0))+(300*(s.mvps||0)))/(s.matches||1)).toFixed(0); };
+    getScore  = function(s) { return _sessionElimScore(s).toFixed(0); };
     getKDFn   = function(s) { return ((s.elim_kills||0) / Math.max(1, s.elim_deaths||0)).toFixed(2); };
   } else if (mode === 'tdm_session') {
     sorted    = getSortedEntriesBySessionTdmScore();
     title     = '\u2550\u2550 TDM Today \u2550\u2550';
-    getScore  = function(s) { return (((0.25*(s.damage||0))+(100*(s.kills||0))+(50*(s.assists||0))-(100*(s.deaths||0))+(500*(s.mvps||0)))/(s.matches||1)).toFixed(0); };
+    getScore  = function(s) { return _sessionTdmScore(s).toFixed(0); };
     getKDFn   = function(s) { var k=(s.tdm_kills||0),d=(s.tdm_deaths||0); return (k/Math.max(1,d)).toFixed(2); };
   } else if (mode === 'combined_session') {
     sorted    = getSortedEntriesBySessionCombinedScore();
     title     = '\u2550\u2550 Combined Today \u2550\u2550';
-    getScore  = function(s) {
-      var e = ((0.5*(s.damage||0))+(100*(s.kills||0))+(50*(s.assists||0))+(300*(s.mvps||0)))/(s.matches||1);
-      var t = ((0.25*(s.damage||0))+(100*(s.kills||0))+(50*(s.assists||0))-(100*(s.deaths||0))+(500*(s.mvps||0)))/(s.matches||1);
-      return ((e+t)/2).toFixed(0);
-    };
+    getScore  = function(s) { return _sessionCombinedScore(s).toFixed(0); };
     getKDFn   = function(s) {
       var k=(s.elim_kills||0)+(s.tdm_kills||0), d=(s.elim_deaths||0)+(s.tdm_deaths||0);
       return (k/Math.max(1,d)).toFixed(2);
@@ -112,8 +108,31 @@ function buildBillboardText(mode) {
     components.push('{"text":"No stats yet","color":"gray"}');
   } else {
     for (var i = 0; i < limit; i++) {
-      var name = sorted[i][0].replace(/\\/g, '').replace(/"/g, '').replace(/'/g, '');
-      var e = sorted[i][1];
+      var row = sorted[i];
+      if (!row) continue;
+      var nameRaw = null;
+      var e = null;
+      var row0 = null;
+      var row1 = null;
+      try {
+        if (row.length >= 2) {
+          nameRaw = row[0];
+          e = row[1];
+        } else if (row.length === 1) {
+          row0 = row[0];
+        }
+      } catch (_rowErr) {}
+      if (nameRaw === null) {
+        if (row0 === null) {
+          try { if (row.length > 0) row0 = row[0]; } catch (_row0Err) {}
+        }
+        nameRaw = row.name || row.player || row0 || 'Unknown';
+      }
+      if (!e) {
+        try { if (row.length > 1) row1 = row[1]; } catch (_row1Err) {}
+        e = row.entry || row.stats || row1 || {};
+      }
+      var name = String(nameRaw).replace(/\\/g, '').replace(/"/g, '').replace(/'/g, '');
       var prefix, color;
       if (i === 0)      { prefix = '\u2605 '; color = 'red'; }
       else if (i === 1) { prefix = '\u2605 '; color = 'gold'; }

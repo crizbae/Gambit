@@ -1,0 +1,28 @@
+{
+  "_comment": "Kill-feed message pools. Each entry is a chat string that appears between the victim name and the killer name (or ends the sentence for solo_execution). Keep a leading space so names are not run together.",
+  "kill": [
+    " was killed by ",
+    " was eliminated by ",
+    " was dropped by ",
+    " was taken out by ",
+    " was deleted by "
+  ],
+  "tournament_kill": [
+    " was shot by ",
+    " was picked off by ",
+    " was put down by ",
+    " was clipped by ",
+    " was tagged out by "
+  ],
+  "execution": [
+    " was finished by ",
+    " was executed by ",
+    " was put down by ",
+    " met their end at the hands of "
+  ],
+  "solo_execution": [
+    " was executed.",
+    " bled out.",
+    " met their end."
+  ]
+}

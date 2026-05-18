@@ -38,6 +38,13 @@ var stats     = {};
 var roundStats = {};
 var statsDirty = false;
 var statsSaveTicker = 0;
+var uuidByName  = {}; // { lowerCaseName: uuid } — reverse lookup, populated by loadEntryFromPlayer
+
+// Returns true if key looks like a Minecraft UUID (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx).
+function isUuidKey(key) {
+  if (typeof key !== 'string' || key.length !== 36) return false;
+  return key.charAt(8) === '-' && key.charAt(13) === '-' && key.charAt(18) === '-' && key.charAt(23) === '-';
+}
 
 // ── Stat tracking gate ───────────────────────────────────────
 // When false, no lifetime stats are written or persisted.
@@ -54,26 +61,94 @@ var PD_SESSION = 'gambit_stats_session';
 var MATCH_HISTORY_MAX = 5;
 
 function getTodayDateString() {
-  try { return new Date().toISOString().slice(0, 10); } catch(e) { return ''; }
+  try {
+    var d = new Date();
+    var y = d.getFullYear();
+    var m = String(d.getMonth() + 1);
+    var day = String(d.getDate());
+    if (m.length < 2) m = '0' + m;
+    if (day.length < 2) day = '0' + day;
+    return y + '-' + m + '-' + day;
+  } catch(e) { return ''; }
+}
+
+var lastSessionResetDate = getTodayDateString();
+
+function rolloverSessionStatsIfNeeded() {
+  var today = getTodayDateString();
+  if (!today || today === lastSessionResetDate) return;
+
+  var keys = Object.keys(stats);
+  var changed = 0;
+  for (var i = 0; i < keys.length; i++) {
+    var entry = stats[keys[i]];
+    if (!entry) continue;
+    if (entry.session && entry.session.date === today) continue;
+    entry.session = makeDefaultSession();
+    changed += 1;
+  }
+
+  lastSessionResetDate = today;
+  if (changed > 0) markStatsDirty();
 }
 
 function makeDefaultSession() {
   return { date: getTodayDateString(), kills: 0, deaths: 0, damage: 0.0, matches: 0, wins: 0, assists: 0, mvps: 0,
-           elim_kills: 0, elim_deaths: 0, elim_matches: 0, elim_damage: 0.0,
-           tdm_kills: 0, tdm_deaths: 0, tdm_matches: 0, tdm_damage: 0.0,
+           elim_kills: 0, elim_deaths: 0, elim_matches: 0, elim_damage: 0.0, elim_assists: 0, elim_mvps: 0,
+           tdm_kills: 0, tdm_deaths: 0, tdm_matches: 0, tdm_damage: 0.0, tdm_assists: 0, tdm_mvps: 0,
            longest_streak: 0, revives: 0 };
 }
 
 function makeDefaultEntry() {
-  return { damage: 0.0, kills: 0, deaths: 0, matches: 0, wins: 0, mvps: 0, assists: 0, longest_streak: 0, revives: 0,
+  return { name: '', damage: 0.0, kills: 0, deaths: 0, matches: 0, wins: 0, mvps: 0, assists: 0, longest_streak: 0, revives: 0,
            elim_score_total: 0.0, elim_matches: 0, elim_kills: 0, elim_deaths: 0,
            tdm_score_total: 0.0, tdm_matches: 0, tdm_kills: 0, tdm_deaths: 0,
            match_history: [], session: makeDefaultSession() };
 }
 
+function normalizeMatchHistory(rawHistory) {
+  var out = [];
+  if (!rawHistory) return out;
+
+  // Plain JS arrays
+  if (Array.isArray(rawHistory)) {
+    var lim = Math.min(MATCH_HISTORY_MAX, rawHistory.length);
+    for (var ai = 0; ai < lim; ai++) {
+      var ar = rawHistory[ai];
+      if (ar) out.push(ar);
+    }
+    return out;
+  }
+
+  // Java arrays / lists from JsonIO can expose length/size/get differently.
+  var len = 0;
+  try {
+    if (typeof rawHistory.size === 'function') len = Math.floor(Number(rawHistory.size()) || 0);
+    else if (typeof rawHistory.length === 'number') len = Math.floor(Number(rawHistory.length) || 0);
+  } catch (e) { len = 0; }
+
+  if (len <= 0) return out;
+
+  var max = Math.min(MATCH_HISTORY_MAX, len);
+  for (var i = 0; i < max; i++) {
+    var r = null;
+    try {
+      if (typeof rawHistory.get === 'function') r = rawHistory.get(i);
+      else r = rawHistory[i];
+    } catch (_mhErr) {
+      // Stop on the first invalid index access from Java-backed containers.
+      break;
+    }
+    if (r) out.push(r);
+  }
+
+  return out;
+}
+
 function normalizeEntry(raw) {
   var base = makeDefaultEntry();
   if (!raw) return base;
+  base.name           = String(raw.name || '');
 
   base.damage         = Number(raw.damage || 0.0);
   base.kills          = Math.floor(Number(raw.kills || 0));
@@ -112,10 +187,8 @@ function normalizeEntry(raw) {
   if (Number.isNaN(base.tdm_kills))        base.tdm_kills = 0;
   if (Number.isNaN(base.tdm_deaths))       base.tdm_deaths = 0;
 
-  // Preserve match history array as-is
-  base.match_history = (raw.match_history && Array.isArray(raw.match_history))
-    ? raw.match_history.slice(0, MATCH_HISTORY_MAX)
-    : [];
+  // Copy match history defensively (JsonIO may return Java-backed containers).
+  base.match_history = normalizeMatchHistory(raw.match_history);
 
   // Session: reset if date has changed, otherwise carry forward
   var today = getTodayDateString();
@@ -134,10 +207,14 @@ function normalizeEntry(raw) {
       elim_deaths:    Math.floor(Number(rawSession.elim_deaths    || 0)),
       elim_matches:   Math.floor(Number(rawSession.elim_matches   || 0)),
       elim_damage:    Number(rawSession.elim_damage || 0.0),
+      elim_assists:   Math.floor(Number(rawSession.elim_assists   || 0)),
+      elim_mvps:      Math.floor(Number(rawSession.elim_mvps      || 0)),
       tdm_kills:      Math.floor(Number(rawSession.tdm_kills      || 0)),
       tdm_deaths:     Math.floor(Number(rawSession.tdm_deaths     || 0)),
       tdm_matches:    Math.floor(Number(rawSession.tdm_matches    || 0)),
       tdm_damage:     Number(rawSession.tdm_damage || 0.0),
+      tdm_assists:    Math.floor(Number(rawSession.tdm_assists    || 0)),
+      tdm_mvps:       Math.floor(Number(rawSession.tdm_mvps       || 0)),
       longest_streak: Math.floor(Number(rawSession.longest_streak || 0)),
       revives:        Math.floor(Number(rawSession.revives        || 0))
     };
@@ -152,9 +229,17 @@ function markStatsDirty() {
   statsDirty = true;
 }
 
-function getEntry(playerName) {
-  if (!stats[playerName]) stats[playerName] = makeDefaultEntry();
-  return stats[playerName];
+function getEntry(key) {
+  if (!key) { var _nk = makeDefaultEntry(); return _nk; }
+  // Direct hit (UUID-keyed or legacy name-keyed)
+  if (stats[key]) return stats[key];
+  // Resolve by name → UUID via reverse index (populated after loadEntryFromPlayer)
+  var _uuid = uuidByName[String(key).toLowerCase()];
+  if (_uuid && stats[_uuid]) return stats[_uuid];
+  // Create new entry keyed by name (legacy; migrated to UUID on next login)
+  stats[key] = makeDefaultEntry();
+  stats[key].name = String(key);
+  return stats[key];
 }
 
 function getRoundEntry(playerName) {
@@ -164,6 +249,15 @@ function getRoundEntry(playerName) {
 
 function clearRoundStats() {
   roundStats = {};
+}
+
+function resetPlayerSession(playerName) {
+  if (!playerName) return false;
+  var entry = getEntry(playerName);
+  if (!entry) return false;
+  entry.session = makeDefaultSession();
+  markStatsDirty();
+  return true;
 }
 
 // ── Match history ─────────────────────────────────────────────
@@ -220,8 +314,27 @@ function loadEntryFromPlayer(player) {
   if (!player) return;
   var name = player.name && player.name.string ? player.name.string : null;
   if (!name) return;
+  var uuid      = String(player.uuid);
+  var nameLower = name.toLowerCase();
+  // Migrate any legacy name-keyed entry to this player's UUID slot
+  if (!stats[uuid]) {
+    var _legacyKeys = Object.keys(stats);
+    for (var _lki = 0; _lki < _legacyKeys.length; _lki++) {
+      var _lk = _legacyKeys[_lki];
+      if (!isUuidKey(_lk) && String(_lk).toLowerCase() === nameLower) {
+        stats[uuid] = stats[_lk];
+        delete stats[_lk];
+        break;
+      }
+    }
+  }
   var tag   = player.persistentData;
-  var entry = getEntry(name);
+  var entry = getEntry(uuid);
+  // Update display name and keep reverse index current
+  var _prevName = entry.name;
+  if (_prevName && _prevName.toLowerCase() !== nameLower) delete uuidByName[_prevName.toLowerCase()];
+  entry.name = name;
+  uuidByName[nameLower] = uuid;
   entry.damage         = readTagNumber(tag, PD_DAMAGE, 0.0);
   entry.kills          = Math.floor(readTagNumber(tag, PD_KILLS, 0));
   entry.deaths         = Math.floor(readTagNumber(tag, PD_DEATHS, 0));
@@ -261,10 +374,14 @@ function loadEntryFromPlayer(player) {
           elim_deaths:    Math.floor(Number(parsedSess.elim_deaths    || 0)),
           elim_matches:   Math.floor(Number(parsedSess.elim_matches   || 0)),
           elim_damage:    Number(parsedSess.elim_damage || 0.0),
+          elim_assists:   Math.floor(Number(parsedSess.elim_assists   || 0)),
+          elim_mvps:      Math.floor(Number(parsedSess.elim_mvps      || 0)),
           tdm_kills:      Math.floor(Number(parsedSess.tdm_kills      || 0)),
           tdm_deaths:     Math.floor(Number(parsedSess.tdm_deaths     || 0)),
           tdm_matches:    Math.floor(Number(parsedSess.tdm_matches    || 0)),
           tdm_damage:     Number(parsedSess.tdm_damage || 0.0),
+          tdm_assists:    Math.floor(Number(parsedSess.tdm_assists    || 0)),
+          tdm_mvps:       Math.floor(Number(parsedSess.tdm_mvps       || 0)),
           longest_streak: Math.floor(Number(parsedSess.longest_streak || 0)),
           revives:        Math.floor(Number(parsedSess.revives        || 0))
         };
@@ -279,8 +396,9 @@ function saveEntryToPlayer(player) {
   if (!player) return;
   var name = player.name && player.name.string ? player.name.string : null;
   if (!name) return;
+  var uuid  = String(player.uuid);
   var tag   = player.persistentData;
-  var entry = getEntry(name);
+  var entry = getEntry(uuid);
   writeTagNumber(tag, PD_DAMAGE,         entry.damage,                false);
   writeTagNumber(tag, PD_KILLS,          entry.kills,                 true);
   writeTagNumber(tag, PD_DEATHS,         entry.deaths,                true);
@@ -311,7 +429,10 @@ function clearEntryForPlayer(player) {
   if (!player) return;
   var name = player.name && player.name.string ? player.name.string : null;
   if (!name) return;
-  stats[name] = makeDefaultEntry();
+  var uuid = String(player.uuid);
+  stats[uuid] = makeDefaultEntry();
+  stats[uuid].name = name;
+  uuidByName[name.toLowerCase()] = uuid;
   saveEntryToPlayer(player);
 }
 
@@ -410,10 +531,15 @@ function getOnlinePlayerByName(server, playerName) {
 
 function getExistingStatName(name) {
   if (!name) return null;
-  if (stats[name]) return name;
   var wanted = String(name).toLowerCase();
+  // Fast path: reverse UUID index
+  var _uuid = uuidByName[wanted];
+  if (_uuid && stats[_uuid]) return _uuid;
+  // Scan all entries — check stored name field, then fall back to key itself (legacy)
   var keys = Object.keys(stats);
   for (var i = 0; i < keys.length; i++) {
+    var _se = stats[keys[i]];
+    if (_se && String(_se.name || '').toLowerCase() === wanted) return keys[i];
     if (String(keys[i]).toLowerCase() === wanted) return keys[i];
   }
   return null;
@@ -450,7 +576,7 @@ function applyMatchResult(server, targetArg, addMatch, addWin) {
         e.session.matches += 1;
         var _amMode = (typeof currentModeId !== 'undefined') ? currentModeId : -1;
         if (_amMode === 1) e.session.tdm_matches = (e.session.tdm_matches || 0) + 1;
-        else if (_amMode === 0) e.session.elim_matches = (e.session.elim_matches || 0) + 1;
+        else               e.session.elim_matches = (e.session.elim_matches || 0) + 1;
       }
       if (addWin) e.session.wins += 1;
       saveEntryToPlayer(p);
@@ -473,7 +599,7 @@ function applyMatchResult(server, targetArg, addMatch, addWin) {
     entry.session.matches += 1;
     var _amMode = (typeof currentModeId !== 'undefined') ? currentModeId : -1;
     if (_amMode === 1) entry.session.tdm_matches = (entry.session.tdm_matches || 0) + 1;
-    else if (_amMode === 0) entry.session.elim_matches = (entry.session.elim_matches || 0) + 1;
+    else               entry.session.elim_matches = (entry.session.elim_matches || 0) + 1;
   }
   if (addWin) entry.session.wins += 1;
   saveEntryToPlayer(targetPlayer);
@@ -527,8 +653,9 @@ function getSortedEntriesByMetric(metric) {
   var keys = Object.keys(stats);
   var arr  = [];
   for (var i = 0; i < keys.length; i++) {
-    if ((stats[keys[i]].matches || 0) >= LEADERBOARD_MIN_MATCHES) {
-      arr.push([keys[i], stats[keys[i]]]);
+    var _smEntry = stats[keys[i]];
+    if ((_smEntry.matches || 0) >= LEADERBOARD_MIN_MATCHES) {
+      arr.push([_smEntry.name || keys[i], _smEntry]);
     }
   }
   arr.sort(function(a, b) {
@@ -570,7 +697,7 @@ function getSortedEntriesBySessionMetric(metric) {
   var arr   = [];
   for (var i = 0; i < keys.length; i++) {
     var s = stats[keys[i]].session;
-    if (s && s.date === today && (s.matches || 0) > 0) arr.push([keys[i], s]);
+    if (s && s.date === today && (s.matches || 0) > 0) arr.push([stats[keys[i]].name || keys[i], s]);
   }
   arr.sort(function(a, b) {
     var primary = sessionMetricValue(b[1], metric) - sessionMetricValue(a[1], metric);
@@ -604,7 +731,7 @@ function getSortedEntries() {
   for (var i = 0; i < keys.length; i++) {
     var _e = stats[keys[i]];
     if ((_e.elim_matches || 0) >= LEADERBOARD_MIN_MATCHES_MODE && (_e.tdm_matches || 0) >= LEADERBOARD_MIN_MATCHES_MODE) {
-      arr.push([keys[i], _e]);
+      arr.push([_e.name || keys[i], _e]);
     }
   }
   arr.sort(function(a, b) {
@@ -621,8 +748,9 @@ function getSortedEntriesByElimScore() {
   var keys = Object.keys(stats);
   var arr  = [];
   for (var i = 0; i < keys.length; i++) {
-    if ((stats[keys[i]].elim_matches || 0) >= LEADERBOARD_MIN_MATCHES_MODE) {
-      arr.push([keys[i], stats[keys[i]]]);
+    var _esEntry = stats[keys[i]];
+    if ((_esEntry.elim_matches || 0) >= LEADERBOARD_MIN_MATCHES_MODE) {
+      arr.push([_esEntry.name || keys[i], _esEntry]);
     }
   }
   arr.sort(function(a, b) { return getElimAvgScore(b[1]) - getElimAvgScore(a[1]); });
@@ -633,8 +761,9 @@ function getSortedEntriesByTdmScore() {
   var keys = Object.keys(stats);
   var arr  = [];
   for (var i = 0; i < keys.length; i++) {
-    if ((stats[keys[i]].tdm_matches || 0) >= LEADERBOARD_MIN_MATCHES_MODE) {
-      arr.push([keys[i], stats[keys[i]]]);
+    var _tsEntry = stats[keys[i]];
+    if ((_tsEntry.tdm_matches || 0) >= LEADERBOARD_MIN_MATCHES_MODE) {
+      arr.push([_tsEntry.name || keys[i], _tsEntry]);
     }
   }
   arr.sort(function(a, b) { return getTdmAvgScore(b[1]) - getTdmAvgScore(a[1]); });
@@ -643,30 +772,59 @@ function getSortedEntriesByTdmScore() {
 
 // Session score helpers — use mode-specific kill/death/damage/match counts
 function _sessionElimScore(s) {
-  var m = (s.elim_matches > 0 ? s.elim_matches : s.matches) || 0;
+  var m = s.elim_matches || 0;
   if (m === 0) return 0;
   // Use mode-specific damage if available, fall back to total only for legacy sessions
   var dmg = (s.elim_damage > 0 || s.tdm_damage > 0) ? (s.elim_damage || 0) : (s.damage || 0);
-  return ((0.5 * dmg) + (100 * (s.elim_kills || 0)) + (50 * (s.assists || 0)) + (300 * (s.mvps || 0))) / m;
+  return ((0.5 * dmg) + (100 * (s.elim_kills || 0)) + (50 * (s.elim_assists || 0)) + (300 * (s.elim_mvps || 0))) / m;
 }
 function _sessionTdmScore(s) {
-  var m = (s.tdm_matches > 0 ? s.tdm_matches : s.matches) || 0;
+  var m = s.tdm_matches || 0;
   if (m === 0) return 0;
   // Use mode-specific damage if available, fall back to total only for legacy sessions
   var dmg = (s.elim_damage > 0 || s.tdm_damage > 0) ? (s.tdm_damage || 0) : (s.damage || 0);
-  return ((0.25 * dmg) + (100 * (s.tdm_kills || 0)) + (50 * (s.assists || 0)) - (100 * (s.tdm_deaths || 0)) + (500 * (s.mvps || 0))) / m;
+  return ((0.25 * dmg) + (100 * (s.tdm_kills || 0)) + (50 * (s.tdm_assists || 0)) - (100 * (s.tdm_deaths || 0)) + (500 * (s.tdm_mvps || 0))) / m;
 }
 function _sessionCombinedScore(s) {
-  return (_sessionElimScore(s) + _sessionTdmScore(s)) / 2;
+  var em = s.elim_matches || 0;
+  var tm = s.tdm_matches  || 0;
+  var total = em + tm;
+  if (total === 0) return 0;
+  return (_sessionElimScore(s) * em + _sessionTdmScore(s) * tm) / total;
 }
 
 function _getSessionEntriesToday() {
   var today = getTodayDateString();
   var keys  = Object.keys(stats);
-  var arr   = [];
+  var byName = {};
   for (var i = 0; i < keys.length; i++) {
-    var s = stats[keys[i]].session;
-    if (s && s.date === today && (s.matches || 0) > 0) arr.push([keys[i], s]);
+    var key = keys[i];
+    var entry = stats[key];
+    if (!entry) continue;
+    var s = entry.session;
+    if (!(s && s.date === today && (s.matches || 0) > 0)) continue;
+    var displayName = entry.name || key;
+    var nameKey = String(displayName).toLowerCase();
+    var prev = byName[nameKey];
+    if (!prev) {
+      byName[nameKey] = { name: displayName, session: s, key: key };
+      continue;
+    }
+    // Prefer UUID-keyed entries over legacy name-keyed duplicates.
+    if (isUuidKey(key) && !isUuidKey(prev.key)) {
+      byName[nameKey] = { name: displayName, session: s, key: key };
+      continue;
+    }
+    // Otherwise keep the row with more session matches.
+    if ((s.matches || 0) > (prev.session.matches || 0)) {
+      byName[nameKey] = { name: displayName, session: s, key: key };
+    }
+  }
+  var arr = [];
+  var names = Object.keys(byName);
+  for (var ni = 0; ni < names.length; ni++) {
+    var row = byName[names[ni]];
+    arr.push([row.name, row.session]);
   }
   return arr;
 }
@@ -674,10 +832,25 @@ function _getSessionEntriesToday() {
 function getSortedEntriesBySessionElimScore() {
   var today = getTodayDateString();
   var keys = Object.keys(stats);
-  var arr  = [];
+  var byName = {};
   for (var i = 0; i < keys.length; i++) {
-    var s = stats[keys[i]].session;
-    if (s && s.date === today && (s.elim_matches > 0 || s.elim_kills > 0)) arr.push([keys[i], s]);
+    var key = keys[i];
+    var entry = stats[key];
+    if (!entry) continue;
+    var s = entry.session;
+    if (!(s && s.date === today && (s.elim_matches || 0) > 0)) continue;
+    var displayName = entry.name || key;
+    var nameKey = String(displayName).toLowerCase();
+    var prev = byName[nameKey];
+    if (!prev || (isUuidKey(key) && !isUuidKey(prev.key)) || ((s.elim_matches || 0) > (prev.session.elim_matches || 0))) {
+      byName[nameKey] = { name: displayName, session: s, key: key };
+    }
+  }
+  var arr = [];
+  var names = Object.keys(byName);
+  for (var ni = 0; ni < names.length; ni++) {
+    var row = byName[names[ni]];
+    arr.push([row.name, row.session]);
   }
   arr.sort(function(a, b) { return _sessionElimScore(b[1]) - _sessionElimScore(a[1]); });
   return arr;
@@ -685,10 +858,25 @@ function getSortedEntriesBySessionElimScore() {
 function getSortedEntriesBySessionTdmScore() {
   var today = getTodayDateString();
   var keys = Object.keys(stats);
-  var arr  = [];
+  var byName = {};
   for (var i = 0; i < keys.length; i++) {
-    var s = stats[keys[i]].session;
-    if (s && s.date === today && (s.tdm_matches > 0 || s.tdm_kills > 0)) arr.push([keys[i], s]);
+    var key = keys[i];
+    var entry = stats[key];
+    if (!entry) continue;
+    var s = entry.session;
+    if (!(s && s.date === today && (s.tdm_matches || 0) > 0)) continue;
+    var displayName = entry.name || key;
+    var nameKey = String(displayName).toLowerCase();
+    var prev = byName[nameKey];
+    if (!prev || (isUuidKey(key) && !isUuidKey(prev.key)) || ((s.tdm_matches || 0) > (prev.session.tdm_matches || 0))) {
+      byName[nameKey] = { name: displayName, session: s, key: key };
+    }
+  }
+  var arr = [];
+  var names = Object.keys(byName);
+  for (var ni = 0; ni < names.length; ni++) {
+    var row = byName[names[ni]];
+    arr.push([row.name, row.session]);
   }
   arr.sort(function(a, b) { return _sessionTdmScore(b[1]) - _sessionTdmScore(a[1]); });
   return arr;
@@ -719,6 +907,25 @@ function formatRoundEntryForDamage(name, e) {
 function tellAll(server, msg) {
   if (!server || !server.players) return;
   server.players.forEach(function(p) { p.tell(msg); });
+}
+
+function makePostGameDotDivider(minWidth, contentWidth) {
+  var width = Math.max(Number(minWidth) || 0, Number(contentWidth) || 0);
+  if (width < 36) width = 36;
+  if (width > 90) width = 90;
+  var out = '';
+  for (var i = 0; i < width; i++) out += '·';
+  return '§8§m' + out;
+}
+
+function getMaxLineLength(lines) {
+  if (!lines || !lines.length) return 0;
+  var maxLen = 0;
+  for (var i = 0; i < lines.length; i++) {
+    var s = String(lines[i] == null ? '' : lines[i]);
+    if (s.length > maxLen) maxLen = s.length;
+  }
+  return maxLen;
 }
 
 // ── MVP helpers ───────────────────────────────────────────────
@@ -762,7 +969,7 @@ function awardMvpToLifetime(server, playerName) {
   var entry    = getEntry(resolved);
   entry.mvps   = (entry.mvps || 0) + 1;
   markStatsDirty();
-  return resolved;
+  return entry.name || resolved;
 }
 
 function broadcastPostGameScoreboard(server) {
@@ -782,6 +989,19 @@ function broadcastPostGameScoreboard(server) {
   var maxRowsDamage = Math.min(5, byDamage.length);
   var mvp = getRoundMvp();
 
+  // Build a consistent-width postgame card based on the longest visible content line.
+  var _cardPlain = ['Post-Game Summary', 'Top 5: Kills', 'Top 5: Damage'];
+  for (var _ki = 0; _ki < maxRowsKills; _ki++) {
+    _cardPlain.push(((_ki + 1) + '. ' + byKills[_ki][0] + ' - Kills: ' + byKills[_ki][1].kills));
+  }
+  for (var _di = 0; _di < maxRowsDamage; _di++) {
+    _cardPlain.push(((_di + 1) + '. ' + byDamage[_di][0] + ' - Damage: ' + byDamage[_di][1].damage.toFixed(1)));
+  }
+  if (mvp) {
+    _cardPlain.push('MVP: ' + mvp.name + ' (' + mvp.entry.kills + ' Kills, ' + mvp.entry.damage.toFixed(1) + ' Damage)');
+  }
+  var _globalDivider = makePostGameDotDivider(49, getMaxLineLength(_cardPlain) + 6);
+
   // ── Resolve map/mode name from gambit_maps.js globals (shared Rhino scope) ──
   var _histMapName  = '';
   var _histModeName = '';
@@ -796,21 +1016,24 @@ function broadcastPostGameScoreboard(server) {
     }
   } catch(_me) {}
 
-  tellAll(server, '§6§l=== Post-Game Top 5: Kills ===');
+  tellAll(server, _globalDivider);
+  tellAll(server, '§6§lPost-Game Summary');
+  tellAll(server, _globalDivider);
+  tellAll(server, '§6§lTop 5: Kills');
   for (var i = 0; i < maxRowsKills; i++) {
     tellAll(server, '§7' + (i + 1) + '. ' + formatRoundEntryForKills(byKills[i][0], byKills[i][1]));
   }
-  tellAll(server, '§8§m-----------------------------------');
-  tellAll(server, '§6§l=== Post-Game Top 5: Damage ===');
+  tellAll(server, _globalDivider);
+  tellAll(server, '§6§lTop 5: Damage');
   for (var j = 0; j < maxRowsDamage; j++) {
     tellAll(server, '§7' + (j + 1) + '. ' + formatRoundEntryForDamage(byDamage[j][0], byDamage[j][1]));
   }
-  tellAll(server, '§8§m-----------------------------------');
+  tellAll(server, _globalDivider);
   if (mvp) {
     var awardedName = awardMvpToLifetime(server, mvp.name);
     tellAll(server, '§a§lMVP: §e' + awardedName + '§r §7(' + mvp.entry.kills + ' Kills, ' + mvp.entry.damage.toFixed(1) + ' Damage)');
+    tellAll(server, _globalDivider);
   }
-  tellAll(server, '§6§l===================================');
 
   // Send each online player their own round summary as a private message.
   var onlinePlayers = server.players;
@@ -821,18 +1044,16 @@ function broadcastPostGameScoreboard(server) {
     if (!_pe) continue;
     var _kills  = _pe.kills  || 0;
     var _dmg    = (_pe.damage || 0).toFixed(1);
-    _pp.tell('§8§m·················································');
+    var _perfTitlePlain = 'Your Performance';
+    var _perfLinePlain  = 'Kills: ' + _kills + '  Damage: ' + _dmg;
+    var _perfDivider    = makePostGameDotDivider(49, getMaxLineLength([_perfTitlePlain, _perfLinePlain]) + 6);
+    _pp.tell(_perfDivider);
     _pp.tell('§e§lYour Performance');
     _pp.tell('  §cKills: §f' + _kills + '  §6Damage: §f' + _dmg);
-    _pp.tell('§8§m·················································');
+    _pp.tell(_perfDivider);
 
-    // Write match history entry (only if stat tracking is on and we have a map name)
-    if ((typeof statsTrackingEnabled === 'undefined' || statsTrackingEnabled) && _histMapName) {
-      var _onRed  = hasTagSafe(_pp, 'Red');
-      var _onBlue = hasTagSafe(_pp, 'Blue');
-      var _won = false;
-      if (pendingHistoryWinner === 'red'  && _onRed)  _won = true;
-      if (pendingHistoryWinner === 'blue' && _onBlue) _won = true;
+    // Update session stats (gated on stat tracking; map name is not required for session)
+    if (typeof statsTrackingEnabled === 'undefined' || statsTrackingEnabled) {
       loadEntryFromPlayer(_pp);
       var _entry = getEntry(_pname);
       // Session: accumulate kills/deaths/damage/assists
@@ -841,38 +1062,57 @@ function broadcastPostGameScoreboard(server) {
       _entry.session.deaths  += (_pe.deaths  || 0);
       _entry.session.damage  += (_pe.damage  || 0.0);
       _entry.session.assists += (_pe.assists || 0);
-      if (mvp && mvp.name && mvp.name === _pname) _entry.session.mvps = (_entry.session.mvps || 0) + 1;
+      var _isMvp = (mvp && mvp.name && mvp.name === _pname);
+      if (_isMvp) _entry.session.mvps = (_entry.session.mvps || 0) + 1;
       var _isTdmSession = (_histModeName === 'TDM');
       if (_isTdmSession) {
-        _entry.session.tdm_kills  = (_entry.session.tdm_kills  || 0) + (_pe.kills  || 0);
-        _entry.session.tdm_deaths = (_entry.session.tdm_deaths || 0) + (_pe.deaths || 0);
-        _entry.session.tdm_damage = (_entry.session.tdm_damage || 0) + (_pe.damage || 0);
+        _entry.session.tdm_kills   = (_entry.session.tdm_kills   || 0) + (_pe.kills   || 0);
+        _entry.session.tdm_deaths  = (_entry.session.tdm_deaths  || 0) + (_pe.deaths  || 0);
+        _entry.session.tdm_damage  = (_entry.session.tdm_damage  || 0) + (_pe.damage  || 0);
+        _entry.session.tdm_assists = (_entry.session.tdm_assists || 0) + (_pe.assists || 0);
+        if (_isMvp) _entry.session.tdm_mvps = (_entry.session.tdm_mvps || 0) + 1;
       } else {
-        _entry.session.elim_kills  = (_entry.session.elim_kills  || 0) + (_pe.kills  || 0);
-        _entry.session.elim_deaths = (_entry.session.elim_deaths || 0) + (_pe.deaths || 0);
-        _entry.session.elim_damage = (_entry.session.elim_damage || 0) + (_pe.damage || 0);
+        _entry.session.elim_kills   = (_entry.session.elim_kills   || 0) + (_pe.kills   || 0);
+        _entry.session.elim_deaths  = (_entry.session.elim_deaths  || 0) + (_pe.deaths  || 0);
+        _entry.session.elim_damage  = (_entry.session.elim_damage  || 0) + (_pe.damage  || 0);
+        _entry.session.elim_assists = (_entry.session.elim_assists || 0) + (_pe.assists || 0);
+        if (_isMvp) _entry.session.elim_mvps = (_entry.session.elim_mvps || 0) + 1;
       }
-      pushMatchHistory(_pname, _histMapName, _histModeName, _pe, _won);
+      // Write match history only when a map name is available
+      if (_histMapName) {
+        var _onRed  = hasTagSafe(_pp, 'Red');
+        var _onBlue = hasTagSafe(_pp, 'Blue');
+        var _won = false;
+        if (pendingHistoryWinner === 'red'  && _onRed)  _won = true;
+        if (pendingHistoryWinner === 'blue' && _onBlue) _won = true;
+        pushMatchHistory(_pname, _histMapName, _histModeName, _pe, _won);
+      }
       saveEntryToPlayer(_pp);
     }
   }
   pendingHistoryWinner = null;
 
   clearRoundStats();
+  if (statsDirty) {
+    try { saveStatsToDisk(); } catch (_pgSaveErr) { console.error('[Gambit Stats] Postgame flush failed: ' + _pgSaveErr); }
+  }
   return Math.max(maxRowsKills, maxRowsDamage);
 }
 
 // ── Session card display ──────────────────────────────────────
 function showSessionCard(viewer, name, e) {
   var s   = (e.session && e.session.date === getTodayDateString()) ? e.session : makeDefaultSession();
-  var kd  = (s.deaths > 0 ? s.kills / s.deaths : s.kills).toFixed(2);
-  var dpl = (s.deaths > 0 ? s.damage / s.deaths : s.damage).toFixed(1);
+  var _sKills  = Number(s.kills || 0);
+  var _sDeaths = Number(s.deaths || 0);
+  var _sDamage = Number(s.damage || 0.0);
+  var kd  = Number(_sDeaths > 0 ? (_sKills / _sDeaths) : _sKills).toFixed(2);
+  var dpl = Number(_sDeaths > 0 ? (_sDamage / _sDeaths) : _sDamage).toFixed(1);
   var winPct = (s.matches > 0 ? (s.wins * 100 / s.matches).toFixed(1) : '0.0');
   viewer.tell('§6§l── Today\'s Stats: ' + name + ' ──');
   viewer.tell('  §4Kills: §f'    + (s.kills   || 0));
   viewer.tell('  §8Deaths: §f'   + (s.deaths  || 0));
   viewer.tell('  §bKD: §f'       + kd);
-  viewer.tell('  §6Damage: §f'   + (s.damage  || 0).toFixed(1));
+  viewer.tell('  §6Damage: §f'   + Number(s.damage || 0).toFixed(1));
   viewer.tell('  §aDPL: §f'      + dpl);
   viewer.tell('  §eAssists: §f'     + (s.assists || 0));
   viewer.tell('  §6Matches: §f'     + (s.matches || 0));
@@ -895,8 +1135,11 @@ function showMatchHistory(viewer, name, e) {
   }
   for (var i = 0; i < history.length; i++) {
     var r    = history[i];
-    var kd   = (r.deaths > 0 ? (r.kills / r.deaths) : r.kills).toFixed(2);
-    var dpl  = (r.deaths > 0 ? (r.damage / r.deaths) : r.damage).toFixed(1);
+    var _kills  = Number(r && r.kills  ? r.kills  : 0);
+    var _deaths = Number(r && r.deaths ? r.deaths : 0);
+    var _damage = Number(r && r.damage ? r.damage : 0.0);
+    var kd   = Number(_deaths > 0 ? (_kills / _deaths) : _kills).toFixed(2);
+    var dpl  = Number(_deaths > 0 ? (_damage / _deaths) : _damage).toFixed(1);
     var wl   = r.won ? '§aW' : '§cL';
     var mode = r.mode ? '§8(' + r.mode + ')' : '';
     viewer.tell(
@@ -940,27 +1183,45 @@ function loadStatsFromDisk() {
       if (dbKeys.length > 0) {
         var dbLoaded = {};
         for (var di = 0; di < dbKeys.length; di++) {
-          dbLoaded[dbKeys[di]] = normalizeEntry(dbStats[dbKeys[di]]);
+          var _de = normalizeEntry(dbStats[dbKeys[di]]);
+          if (!_de.name) _de.name = String(dbKeys[di]);
+          dbLoaded[dbKeys[di]] = _de;
+          if (isUuidKey(dbKeys[di])) uuidByName[_de.name.toLowerCase()] = dbKeys[di];
         }
         stats = dbLoaded;
-        // MySQL never stores session data — merge today's sessions from the JSON backup.
-        // saveStatsToDisk always writes a JSON backup that includes the full stats object
-        // (including session), so this file has today's session even when MySQL is primary.
+        // MySQL never stores session or inline match_history data used by /stats history.
+        // Merge both from JSON backup so restarts don't drop these fields when DB is primary.
         try {
           var jsonBackup = JsonIO.read(STATS_FILE_PATH);
           if (jsonBackup) {
             var today = getTodayDateString();
             var bjKeys = Object.keys(jsonBackup);
             var sessRestored = 0;
+            var histRestored = 0;
             for (var bji = 0; bji < bjKeys.length; bji++) {
               var bjName = bjKeys[bji];
               var bjRaw  = jsonBackup[bjName];
-              if (bjRaw && bjRaw.session && bjRaw.session.date === today && stats[bjName]) {
+              if (!bjRaw) continue;
+
+              // Resolve target stats key by exact key first, then by stored display name.
+              var targetKey = null;
+              if (stats[bjName]) {
+                targetKey = bjName;
+              } else {
+                var bjDisplay = bjRaw.name ? String(bjRaw.name) : '';
+                if (bjDisplay) {
+                  var resolved = getExistingStatName(bjDisplay);
+                  if (resolved && stats[resolved]) targetKey = resolved;
+                }
+              }
+              if (!targetKey) continue;
+
+              if (bjRaw.session && bjRaw.session.date === today) {
                 // Copy session fields directly — avoids calling normalizeEntry(bjRaw)
                 // which would try to slice match_history (a Java-typed array from JsonIO.read)
                 // and throw ArrayIndexOutOfBoundsException for any player with exactly 1 match.
                 var bjSess = bjRaw.session;
-                stats[bjName].session = {
+                stats[targetKey].session = {
                   date:           today,
                   kills:          Math.floor(Number(bjSess.kills          || 0)),
                   deaths:         Math.floor(Number(bjSess.deaths         || 0)),
@@ -971,15 +1232,32 @@ function loadStatsFromDisk() {
                   mvps:           Math.floor(Number(bjSess.mvps           || 0)),
                   elim_kills:     Math.floor(Number(bjSess.elim_kills     || 0)),
                   elim_deaths:    Math.floor(Number(bjSess.elim_deaths    || 0)),
+                  elim_matches:   Math.floor(Number(bjSess.elim_matches   || 0)),
+                  elim_damage:    Number(bjSess.elim_damage               || 0.0),
+                  elim_assists:   Math.floor(Number(bjSess.elim_assists   || 0)),
+                  elim_mvps:      Math.floor(Number(bjSess.elim_mvps      || 0)),
                   tdm_kills:      Math.floor(Number(bjSess.tdm_kills      || 0)),
                   tdm_deaths:     Math.floor(Number(bjSess.tdm_deaths     || 0)),
+                  tdm_matches:    Math.floor(Number(bjSess.tdm_matches    || 0)),
+                  tdm_damage:     Number(bjSess.tdm_damage                || 0.0),
+                  tdm_assists:    Math.floor(Number(bjSess.tdm_assists    || 0)),
+                  tdm_mvps:       Math.floor(Number(bjSess.tdm_mvps       || 0)),
                   longest_streak: Math.floor(Number(bjSess.longest_streak || 0)),
                   revives:        Math.floor(Number(bjSess.revives        || 0))
                 };
                 sessRestored++;
               }
+
+              if (bjRaw.match_history) {
+                var _mh = normalizeMatchHistory(bjRaw.match_history);
+                if (_mh.length > 0) {
+                  stats[targetKey].match_history = _mh;
+                  histRestored++;
+                }
+              }
             }
             if (sessRestored > 0) console.info('[Gambit Stats] Restored today\'s session for ' + sessRestored + ' player(s) from JSON backup.');
+            if (histRestored > 0) console.info('[Gambit Stats] Restored match history for ' + histRestored + ' player(s) from JSON backup.');
           }
         } catch (_je) {}
         console.info('[Gambit Stats] Loaded ' + dbKeys.length + ' player(s) from MySQL.');
@@ -995,7 +1273,10 @@ function loadStatsFromDisk() {
     var loaded = {};
     var keys   = Object.keys(parsed);
     for (var i = 0; i < keys.length; i++) {
-      loaded[keys[i]] = normalizeEntry(parsed[keys[i]]);
+      var _le = normalizeEntry(parsed[keys[i]]);
+      if (!_le.name) _le.name = String(keys[i]);
+      loaded[keys[i]] = _le;
+      if (isUuidKey(keys[i])) uuidByName[_le.name.toLowerCase()] = keys[i];
     }
     stats = loaded;
     // Auto-migrate existing JSON data into MySQL on first run
@@ -1019,7 +1300,15 @@ function saveStatsToDisk() {
     if (existing) {
       var diskKeys = Object.keys(existing);
       for (var i = 0; i < diskKeys.length; i++) {
-        if (!stats[diskKeys[i]]) stats[diskKeys[i]] = normalizeEntry(existing[diskKeys[i]]);
+        var _diskKey = diskKeys[i];
+        if (stats[_diskKey]) continue;
+        var _diskEntry = normalizeEntry(existing[_diskKey]);
+        var _diskName = String(_diskEntry.name || _diskKey);
+        var _resolved = getExistingStatName(_diskName);
+        // If this player's data is already present under another key (typically UUID),
+        // don't re-add a legacy duplicate key from disk backup.
+        if (_resolved && stats[_resolved]) continue;
+        stats[_diskKey] = _diskEntry;
       }
       // Rolling backup of last known-good file
       try { JsonIO.write(STATS_FILE_PATH + '.bak', existing); } catch (bakErr) {}

@@ -158,6 +158,16 @@ var MAPS = [
     red_spawn: '-266.50 91.00 36.42 -2339.95 0.30',
     blue_spawn: '-266.47 91.00 -35.45 -2159.97 0.60',
     spectator: '-244.60 96.00 0.53 -2428.75 10.20'
+  },
+  {
+    id: 16,
+    name: 'Freight',
+    preset: 'freight',
+    modes: ['tdm'],
+    disc: 'minecraft:music_disc_mellohi',
+    red_spawn: '-949.42 74.00 1050.50 90.27 0.90',
+    blue_spawn: '-1049.53 74.00 1050.51 270.27 2.25',
+    spectator: '-999.50 76.00 1002.34 -0.03 3.71'
   }
   
 ];
@@ -181,9 +191,12 @@ var VOTE_AUTOSTART_DELAY_TICKS = 600; // 30s kit-select window after vote resolv
 var voteActive                 = false;
 var voteOptions                = []; // [{mapId, modeId, name, modeName, modeColor, bossbarColor}] — index 3 is the Random sentinel
 var voteChoices                = {}; // { playerName: optionIndex (0|1|2|3) }
+var voteChoiceMeta             = {}; // { playerName: { optionIndex, votedAtMs, playerUuid } }
 var voteTicksLeft              = 0;
 var voteLastSecondsLeft        = -1;
 var voteExcludeMapId           = 0;  // map just played — excluded from random pick
+var voteRoundCounter           = 0;
+var pendingVoteRowsForMatch    = []; // consumed by gambit_log_match for analytics persistence
 
 // ── Helpers ──────────────────────────────────────────────────
 function getMapById(id) {
@@ -194,10 +207,16 @@ function getMapById(id) {
 }
 
 function parseSpawnXYZ(spawnStr) {
-  var parts = spawnStr.split(' ');
-  return Math.floor(parseFloat(parts[0])) + ' '
-       + Math.floor(parseFloat(parts[1])) + ' '
-       + Math.floor(parseFloat(parts[2]));
+  var raw = String(spawnStr == null ? '' : spawnStr).trim();
+  var parts = raw.length > 0 ? raw.split(/\s+/) : [];
+  if (parts.length < 3) return '0 101 0';
+
+  var x = Math.floor(parseFloat(parts[0]));
+  var y = Math.floor(parseFloat(parts[1]));
+  var z = Math.floor(parseFloat(parts[2]));
+
+  if (isNaN(x) || isNaN(y) || isNaN(z)) return '0 101 0';
+  return x + ' ' + y + ' ' + z;
 }
 
 function getScoreValue(server, playerName, objectiveName) {
@@ -337,10 +356,16 @@ function _resolveVote(server) {
 
   // Reset vote state before staging so tick handler doesn't fire again
   var savedExclude = voteExcludeMapId;
-  var savedOptions = voteOptions.slice(0, 3);
+  var savedOptions = voteOptions.slice(0);  // Copy all options before clearing
+  var savedChoices = {};
+  var _savedChoiceNames = Object.keys(voteChoices);
+  for (var sci = 0; sci < _savedChoiceNames.length; sci++) savedChoices[_savedChoiceNames[sci]] = voteChoices[_savedChoiceNames[sci]];
+  var savedChoiceMeta = voteChoiceMeta;
+  var savedVoteRoundId = voteRoundCounter;
   voteActive = false;
   voteOptions = [];
   voteChoices = {};
+  voteChoiceMeta = {};
   voteTicksLeft = 0;
   voteLastSecondsLeft = -1;
   voteExcludeMapId = 0;
@@ -348,7 +373,7 @@ function _resolveVote(server) {
 
   var winner;
   if (winIdx === 3) {
-    // Random option won — pick any map excluding the just-played one and the 3 shown options
+    // Random option won — pick any map excluding the just-played one and the shown options
     var shownIds = {};
     shownIds[savedExclude] = true;
     for (var si = 0; si < savedOptions.length; si++) shownIds[savedOptions[si].mapId] = true;
@@ -394,7 +419,27 @@ function _resolveVote(server) {
       '{"text":"' + winner.modeName + '","color":"' + winner.modeColor + '"}]'
     );
   } else {
-    winner = savedOptions[winIdx];
+    // A specific map won
+    if (winIdx >= 0 && winIdx < savedOptions.length) {
+      winner = savedOptions[winIdx];
+    } else {
+      // Fallback to random if winIdx is out of bounds (shouldn't happen, but be safe)
+      var pool = [];
+      for (var fi = 0; fi < MAPS.length; fi++) {
+        var fm = MAPS[fi];
+        if (fm.id === savedExclude) continue;
+        if (fm.noVote) continue;
+        for (var fj = 0; fj < fm.modes.length; fj++) {
+          var fisTdm = fm.modes[fj] === 'tdm';
+          pool.push({
+            mapId: fm.id, modeId: fisTdm ? 1 : 0, name: fm.name,
+            modeName: fisTdm ? 'TDM' : 'Elimination',
+            modeColor: fisTdm ? 'aqua' : 'green', bossbarColor: fisTdm ? 'blue' : 'green'
+          });
+        }
+      }
+      winner = pool.length > 0 ? pool[Math.floor(Math.random() * pool.length)] : savedOptions[0];
+    }
     server.runCommandSilent(
       'tellraw @a ["",{"text":"[Vote] ","color":"gold","bold":true},' +
       '{"text":"' + winner.name.replace(/"/g, '') + '  ","color":"white","bold":true},' +
@@ -406,16 +451,58 @@ function _resolveVote(server) {
   // Stage and kick off autostart
   stagedMapId = winner.mapId;
   stagedModeId = winner.modeId;
+  server.runCommandSilent('scoreboard players set #selectors selector_active ' + (winner.modeId === 1 ? 1 : 0));
   autostartTicksLeft = VOTE_AUTOSTART_DELAY_TICKS;
   autostartLastSecondsLeft = -1;
+
+  // Snapshot votes for analytics logging at match end.
+  pendingVoteRowsForMatch = [];
+  var _voterNames = Object.keys(savedChoices);
+  for (var vni = 0; vni < _voterNames.length; vni++) {
+    var _vName = _voterNames[vni];
+    var _choice = savedChoices[_vName];
+    var _meta = savedChoiceMeta && savedChoiceMeta[_vName] ? savedChoiceMeta[_vName] : null;
+    var _row = {
+      vote_round_id: savedVoteRoundId,
+      player_name: _vName,
+      player_uuid: _meta && _meta.playerUuid ? _meta.playerUuid : null,
+      voted_map_id: null,
+      voted_mode_id: null,
+      was_random_vote: _choice === 3,
+      voted_at_ms: _meta && _meta.votedAtMs ? _meta.votedAtMs : Date.now()
+    };
+    if (_choice !== 3 && _choice >= 0 && _choice < savedOptions.length) {
+      _row.voted_map_id = savedOptions[_choice].mapId;
+      _row.voted_mode_id = savedOptions[_choice].modeId;
+    }
+    pendingVoteRowsForMatch.push(_row);
+  }
+
   _announceNextMap(server, winner.mapId, winner.modeId, winner.modeName, winner.name, winner.modeColor, winner.bossbarColor);
 }
 
 function _startVote(server, excludeMapId) {
+  var tournamentActive = typeof tournamentMode !== 'undefined' && tournamentMode;
+  if (tournamentActive) {
+    voteActive = false;
+    voteOptions = [];
+    voteChoices = {};
+    voteChoiceMeta = {};
+    voteTicksLeft = 0;
+    voteLastSecondsLeft = -1;
+    voteExcludeMapId = 0;
+    server.runCommandSilent('scoreboard players set #selectors selector_active 0');
+    server.runCommandSilent('bossbar set gun:nextmap visible false');
+    _removeVotePapers(server);
+    return;
+  }
+  server.runCommandSilent('scoreboard players set #selectors selector_active 0');
   voteOptions = _pickVoteOptions(excludeMapId);
   if (voteOptions.length === 0) return; // no maps available — shouldn't happen
+  voteRoundCounter += 1;
   voteExcludeMapId = excludeMapId;
   voteChoices = {};
+  voteChoiceMeta = {};
   voteTicksLeft = VOTE_DURATION_TICKS;
   voteLastSecondsLeft = -1;
   voteActive = true;
@@ -438,6 +525,9 @@ function _castVoteForPlayer(player, server, optionIndex) {
   var playerName = getPlayerName(player);
   if (!playerName) return;
   voteChoices[playerName] = optionIndex;
+  var _uuid = null;
+  try { if (player && player.uuid) _uuid = String(player.uuid); } catch (e) {}
+  voteChoiceMeta[playerName] = { optionIndex: optionIndex, votedAtMs: Date.now(), playerUuid: _uuid };
   if (optionIndex === 3) {
     player.tell('§7You voted for §5Random Map');
   } else if (voteOptions[optionIndex]) {
@@ -458,6 +548,12 @@ function _castVote(ctx, optionIndex) {
   if (!player) return 0;
   _castVoteForPlayer(player, ctx.source.server, optionIndex);
   return 1;
+}
+
+function gambitGetPendingVoteRowsForMatch() {
+  var out = pendingVoteRowsForMatch;
+  pendingVoteRowsForMatch = [];
+  return out;
 }
 
 function _announceNextMap(server, mapId, modeId, modeName, mapName, modeColor, bossbarColor) {
@@ -511,6 +607,9 @@ function _executeStart(server) {
   currentModeId = stagedModeId;
   matchStartTime = Date.now();
   matchActive = true;
+  entityFrameLocked = true;
+  containerLocked = true;
+  if (typeof gambitResetKitUsageTrackingForMatch === 'function') gambitResetKitUsageTrackingForMatch();
 
   // In tournament mode, skip random assignment and use pre-assigned rosters.
   // Read the JS variable directly (shared Rhino scope) — avoids the scoreboard
@@ -561,6 +660,9 @@ function _executeStart(server) {
     server.runCommandSilent('function gun:starts/general');
   }
 
+  // Custom kill feed handles announcements; keep vanilla death messages off to avoid duplicates.
+  server.runCommandSilent('gamerule showDeathMessages false');
+
   // Apply per-map time override (starts/general and tournament_general both set time 6000 by default).
   if (map.time !== undefined && map.time !== null) {
     server.runCommandSilent('time set ' + Math.floor(map.time));
@@ -572,11 +674,10 @@ function _executeStart(server) {
     server.runCommandSilent('execute as @a[tag=gun_optout,gamemode=spectator] run function gun:starts/spectator_tpmap');
   }
 
-  // Tournament: TP non-participants to the map spectator view, then put them in adventure
-  // so they can walk around the stands rather than being locked in spectator mode.
+  // Tournament: TP non-participants to the map spectator view and keep them in spectator mode.
   if (tournamentActive) {
     server.runCommandSilent('execute as @a[tag=!Red,tag=!Blue,gamemode=!creative] run function gun:starts/spectator_tpmap');
-    server.runCommandSilent('gamemode adventure @a[tag=!Red,tag=!Blue,gamemode=!creative]');
+    server.runCommandSilent('gamemode spectator @a[tag=!Red,tag=!Blue,gamemode=!creative]');
   }
 
   // Tournament mode: strip syringes after kits have been fully applied.
@@ -590,6 +691,8 @@ function _executeStart(server) {
 
 // ── Hide bossbar on reload (autostartTicksLeft resets to 0, bossbar would get stuck) ──
 ServerEvents.loaded(function(event) {
+  event.server.runCommandSilent('scoreboard objectives add selector_active dummy');
+  event.server.runCommandSilent('scoreboard players set #selectors selector_active 0');
   event.server.runCommandSilent('bossbar set gun:nextmap visible false');
   // Restore matchActive from scoreboard after a /kubejs reload mid-match.
   matchActive = getScoreValue(event.server, '#map', 'map_id') > 0;
@@ -597,10 +700,23 @@ ServerEvents.loaded(function(event) {
   voteActive = false;
   voteOptions = [];
   voteChoices = {};
+  voteChoiceMeta = {};
   voteTicksLeft = 0;
   voteLastSecondsLeft = -1;
   voteExcludeMapId = 0;
+  pendingVoteRowsForMatch = [];
   _removeVotePapers(event.server);
+
+  if (typeof gambitDbIsEnabled === 'function' && gambitDbIsEnabled() && typeof gambitDbSyncDimensions === 'function') {
+    var _kits = ['assault', 'breacher', 'burst', 'flanker', 'marksman', 'ranger', 'sniper', 'sentry', 'covert'];
+    if (typeof VALID_KITS !== 'undefined' && VALID_KITS && VALID_KITS.length) {
+      for (var _ki = 0; _ki < VALID_KITS.length; _ki++) {
+        var _kk = String(VALID_KITS[_ki]);
+        if (_kits.indexOf(_kk) === -1) _kits.push(_kk);
+      }
+    }
+    gambitDbSyncDimensions(MAPS, _kits);
+  }
 });
 
 // ── Autostart tick ───────────────────────────────────────────
@@ -834,9 +950,11 @@ ServerEvents.commandRegistry(function (event) {
             voteActive = false;
             voteOptions = [];
             voteChoices = {};
+            voteChoiceMeta = {};
             voteTicksLeft = 0;
             voteLastSecondsLeft = -1;
             voteExcludeMapId = 0;
+            pendingVoteRowsForMatch = [];
             autostartTicksLeft = 0;
             autostartLastSecondsLeft = -1;
             ctx.source.server.runCommandSilent('bossbar set gun:nextmap visible false');
@@ -851,6 +969,10 @@ ServerEvents.commandRegistry(function (event) {
         Commands.literal('start')
           .requires(function (src) { return src.hasPermission(2); })
           .executes(function (ctx) {
+            if (typeof tournamentMode !== 'undefined' && tournamentMode) {
+              try { ctx.source.player.tell('§cMap voting is disabled while tournament mode is ON.'); } catch(e) {}
+              return 0;
+            }
             if (voteActive) {
               try { ctx.source.player.tell('§cA vote is already active. Run /gambitvote stop first.'); } catch(e) {}
               return 0;
@@ -873,6 +995,7 @@ var _VOTE_DISC_TYPES = [
   'minecraft:music_disc_chirp',  // Canopy
   'minecraft:music_disc_wait',   // Vivian Station
   'minecraft:music_disc_otherside', // de_Solace
+  'minecraft:music_disc_mellohi',   // Freight
   'minecraft:music_disc_pigstep'    // Random
 ];
 _VOTE_DISC_TYPES.forEach(function(discType) {

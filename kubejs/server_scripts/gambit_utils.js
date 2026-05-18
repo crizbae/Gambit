@@ -5,21 +5,27 @@
 //                    If currently in a match, switch to spectator and teleport
 //                    to the active map observer view. Otherwise stay adventure
 //                    and spectate automatically at match start.
+//                    Disabled while tournament mode is ON.
 //
 //   /play          - Opt back into queue for upcoming rounds.
 //                    Does not force a gamemode change.
+//                    Disabled while tournament mode is ON.
 //
 //   /queue         - Show current queue status.
 //
 //   /setgoal <n>   - Set the TDM kill target (OP only, 1–500).
 //                    Broadcasts the new target to all players.
 //
-//   /trapdoor off  - Prevent non-OP players from interacting with trapdoors (OP only).
-//   /trapdoor on   - Restore trapdoor interaction for all players (OP only).
-//                    State resets to unlocked on server reload.
-//
 //   /devmode       - Undo event server restrictions for testing (OP only).
-//                    Re-enables item drops, trapdoors, and debug info.
+//                    Re-enables item drops, trapdoors, containers, entity frames, and debug info.
+//
+// Entity interaction protection:
+//   Item frames (normal + glow) cannot be interacted with while
+//   entityFrameLocked = true. Locked on server start and match start; unlocked by /devmode.
+//
+// Container/block protection:
+//   Chests, trapped chests, barrels, shulker boxes, trapdoors, fence gates, and signs cannot be interacted
+//   with while containerLocked = true. Locked on server start and match start; unlocked by /devmode.
 //
 //   /deathmatch    - Apply glowing to all living active players (OP only).
 //
@@ -32,12 +38,34 @@
 
 var OPT_OUT_TAG = 'gun_optout';
 var IntegerArgumentType = Java.loadClass('com.mojang.brigadier.arguments.IntegerArgumentType');
-var trapdoorLocked = false;
+var entityFrameLocked = true;
+var containerLocked = true;
+var deathmatchGlowEnabled = false;
+var deathmatchGlowPulseTicker = 0;
+
+function applyDeathmatchGlow(server) {
+  if (!server) return;
+  // Reapply to active alive participants so consumables that clear effects
+  // (for example panacea pills) do not disable deathmatch visibility.
+  server.runCommandSilent('effect give @a[tag=Red,tag=!gun_dead,gamemode=!spectator] minecraft:glowing 6 0 true');
+  server.runCommandSilent('effect give @a[tag=Blue,tag=!gun_dead,gamemode=!spectator] minecraft:glowing 6 0 true');
+}
 
 BlockEvents.rightClicked(function (event) {
-  if (!trapdoorLocked) return;
-  if (event.block.id.indexOf('trapdoor') === -1) return;
-  event.cancel();
+  if (!containerLocked) return;
+  var id = event.block.id;
+  if (id === 'minecraft:chest'
+      || id === 'minecraft:trapped_chest'
+      || id === 'minecraft:barrel'
+      || id.indexOf('shulker_box') !== -1
+      || id === 'minecraft:anvil'
+      || id === 'minecraft:chipped_anvil'
+      || id === 'minecraft:damaged_anvil'
+      || id.indexOf('trapdoor') !== -1
+      || id.indexOf('fence_gate') !== -1
+      || id.indexOf('sign') !== -1) {
+    event.cancel();
+  }
 });
 
 function runForPlayer(player, command) {
@@ -57,8 +85,8 @@ function setOptOutState(player, enabled) {
     runForPlayer(player, 'tag @s remove Red');
     runForPlayer(player, 'tag @s remove Blue');
     runForPlayer(player, 'team join lobby @s');
+    runForPlayer(player, 'clear @s');
     if (wasInMatch) {
-      runForPlayer(player, 'clear @s');
       runForPlayer(player, 'gamemode spectator');
       runForPlayer(player, 'function gun:starts/spectator_tpmap');
     } else {
@@ -104,13 +132,13 @@ ServerEvents.loaded(function(event) {
   event.server.runCommandSilent('bossbar set gun:tdm_red color red');
   event.server.runCommandSilent('bossbar set gun:tdm_red visible false');
   event.server.runCommandSilent('bossbar add gun:tdm_blue {"text":""}');
-  event.server.runCommandSilent('bossbar set gun:tdm_blue color white');
+  event.server.runCommandSilent('bossbar set gun:tdm_blue color blue');
   event.server.runCommandSilent('bossbar set gun:tdm_blue visible false');
   event.server.runCommandSilent('bossbar add gun:elim_red {"text":""}');
   event.server.runCommandSilent('bossbar set gun:elim_red color red');
   event.server.runCommandSilent('bossbar set gun:elim_red visible false');
   event.server.runCommandSilent('bossbar add gun:elim_blue {"text":""}');
-  event.server.runCommandSilent('bossbar set gun:elim_blue color white');
+  event.server.runCommandSilent('bossbar set gun:elim_blue color blue');
   event.server.runCommandSilent('bossbar set gun:elim_blue visible false');
 
   // Match scoreboards — created once at server load, reset between matches
@@ -146,8 +174,8 @@ ServerEvents.loaded(function(event) {
   // Persistent event server settings — applied at load so they're active from the start
   event.server.runCommandSilent('yawp global add flag item-drop Denied');
   event.server.runCommandSilent('gamerule keepInventory true');
-  event.server.runCommandSilent('trapdoor off');
   event.server.runCommandSilent('gamerule reducedDebugInfo true');
+  event.server.runCommandSilent('gamerule showDeathMessages false');
   event.server.runCommandSilent('gamerule announceAdvancements false');
   event.server.runCommandSilent('gamerule doDaylightCycle false');
   event.server.runCommandSilent('time set 18000');
@@ -155,15 +183,43 @@ ServerEvents.loaded(function(event) {
   event.server.runCommandSilent('weather clear');
 });
 
+// ── Entity interaction protection ─────────────────────────────
+// Prevent players from rotating/removing items from item frames while
+// a match is active. Mirrors the trapdoor system.
+ItemEvents.entityInteracted(function(event) {
+  if (!entityFrameLocked) return;
+  var type = '';
+  try { type = String(event.entity.type); } catch (e) {}
+  if (type === 'minecraft:item_frame'
+      || type === 'minecraft:glow_item_frame') {
+    event.cancel();
+  }
+});
+
+ServerEvents.tick(function(event) {
+  deathmatchGlowPulseTicker += 1;
+  if (deathmatchGlowPulseTicker < 20) return;
+  deathmatchGlowPulseTicker = 0;
+
+  if (!deathmatchGlowEnabled) return;
+  applyDeathmatchGlow(event.server);
+});
+
 ServerEvents.commandRegistry(function(event) {
   var Commands = event.commands;
 
+  // Gambit's queue opt-out command (alias for vanilla /spectate)
   event.register(
-    Commands.literal('spectate')
+    Commands.literal('sit')
       .requires(function(src) { return src.hasPermission(0); })
       .executes(function(ctx) {
         var player = ctx.source.player;
         if (!player || !player.tell) return 1;
+
+        if (typeof tournamentMode !== 'undefined' && tournamentMode) {
+          player.tell('§c[Tournament] /sit is disabled while tournament mode is ON.');
+          return 0;
+        }
 
         if (hasTagSafe(player, OPT_OUT_TAG)) {
           player.tell('§e[Gambit Queue] Spectate mode is already enabled.');
@@ -195,6 +251,11 @@ ServerEvents.commandRegistry(function(event) {
       .executes(function(ctx) {
         var player = ctx.source.player;
         if (!player || !player.tell) return 1;
+
+        if (typeof tournamentMode !== 'undefined' && tournamentMode) {
+          player.tell('§c[Tournament] /play is disabled while tournament mode is ON.');
+          return 0;
+        }
 
         if (!hasTagSafe(player, OPT_OUT_TAG)) {
           player.tell('§e[Gambit Queue] You are already in the queue.');
@@ -235,24 +296,13 @@ ServerEvents.commandRegistry(function(event) {
   );
 
   event.register(
-    Commands.literal('trapdoor')
+    Commands.literal('lockserver')
       .requires(function(src) { return src.hasPermission(2); })
-      .then(
-        Commands.literal('off')
-          .executes(function(ctx) {
-            trapdoorLocked = true;
-            if (ctx.source.player) ctx.source.player.tell('§6[Gambit] §eTrapdoor interaction has been §cdisabled§e.');
-            return 1;
-          })
-      )
-      .then(
-        Commands.literal('on')
-          .executes(function(ctx) {
-            trapdoorLocked = false;
-            if (ctx.source.player) ctx.source.player.tell('§6[Gambit] §eTrapdoor interaction has been §aenabled§e.');
-            return 1;
-          })
-      )
+      .executes(function(ctx) {
+        entityFrameLocked = true;
+        containerLocked = true;
+        return 1;
+      })
   );
 
   event.register(
@@ -261,10 +311,11 @@ ServerEvents.commandRegistry(function(event) {
       .executes(function(ctx) {
         var server = ctx.source.server;
         server.runCommandSilent('yawp global remove flag item-drop');
-        server.runCommandSilent('trapdoor on');
+        entityFrameLocked = false;
+        containerLocked = false;
         server.runCommandSilent('gamerule reducedDebugInfo false');
         if (ctx.source.player) {
-          ctx.source.player.tell('§6[Gambit Dev] §eItem-drop enabled, trapdoors on, debug info visible.');
+          ctx.source.player.tell('§6[Gambit Dev] §eItem-drop enabled, trapdoors/containers unlocked, debug info visible.');
         }
         return 1;
       })
@@ -275,14 +326,45 @@ ServerEvents.commandRegistry(function(event) {
       .requires(function(src) { return src.hasPermission(2); })
       .executes(function(ctx) {
         var server = ctx.source.server;
-        // Apply glowing to all living (non-dead) active players.
-        // Glow color is inherited from the player's Minecraft team (red = red, blue = aqua).
-        server.runCommandSilent('effect give @a[tag=Red,tag=!gun_dead] minecraft:glowing 999999 0 true');
-        server.runCommandSilent('effect give @a[tag=Blue,tag=!gun_dead] minecraft:glowing 999999 0 true');
+        deathmatchGlowEnabled = true;
+        applyDeathmatchGlow(server);
         server.runCommandSilent(
           'tellraw @a ["",{"text":"[Gambit] ","color":"gold","bold":true},{"text":"DEATHMATCH — all players are now visible!","color":"red","bold":true}]'
         );
         return 1;
       })
+      .then(
+        Commands.literal('on')
+          .executes(function(ctx) {
+            deathmatchGlowEnabled = true;
+            applyDeathmatchGlow(ctx.source.server);
+            ctx.source.server.runCommandSilent(
+              'tellraw @a ["",{"text":"[Gambit] ","color":"gold","bold":true},{"text":"DEATHMATCH glow ON.","color":"red","bold":true}]'
+            );
+            return 1;
+          })
+      )
+      .then(
+        Commands.literal('off')
+          .executes(function(ctx) {
+            deathmatchGlowEnabled = false;
+            ctx.source.server.runCommandSilent('effect clear @a[tag=Red] minecraft:glowing');
+            ctx.source.server.runCommandSilent('effect clear @a[tag=Blue] minecraft:glowing');
+            ctx.source.server.runCommandSilent(
+              'tellraw @a ["",{"text":"[Gambit] ","color":"gold","bold":true},{"text":"DEATHMATCH glow OFF.","color":"yellow","bold":true}]'
+            );
+            return 1;
+          })
+      )
+      .then(
+        Commands.literal('status')
+          .executes(function(ctx) {
+            var player = ctx.source.player;
+            if (player && player.tell) {
+              player.tell('§6[Gambit] §eDeathmatch glow: ' + (deathmatchGlowEnabled ? '§aON' : '§cOFF'));
+            }
+            return 1;
+          })
+      )
   );
 });

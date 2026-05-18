@@ -1,1 +1,1 @@
-execute as @a[gamemode=!creative,gamemode=!spectator] run function gun:kits/armor_self
+execute as @a[gamemode=!creative,gamemode=!spectator,tag=!gun_optout] run function gun:kits/armor_self

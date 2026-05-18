@@ -10,8 +10,11 @@ scoreboard players set @a tdm_respawn_timer 0
 tp @a[tag=Red] 0 101 0
 tp @a[tag=Blue] 0 101 0
 gamerule doImmediateRespawn false
-execute as @a[gamemode=spectator] run execute in minecraft:overworld run tp @s 0 101 0
-execute at @a[gamemode=spectator] as @a[gamemode=spectator] run gamemode adventure
+# Convert tournament spectators back to adventure mode and return to spawn
+tag @a[gamemode=spectator] add spectator_returning
+gamemode adventure @a[tag=spectator_returning]
+execute as @a[tag=spectator_returning] run execute in minecraft:overworld run tp @s 0 101 0
+tag @a remove spectator_returning
 tag @a remove gun_dead
 tag @a remove gun_just_died
 tag @a remove gun_spec_tp_pending
@@ -27,6 +30,7 @@ effect give @a regeneration 60 4 true
 effect give @a saturation 1800 0 true
 team join lobby @a[team=red]
 team join lobby @a[team=blue]
+scoreboard players set #selectors selector_active 0
 schedule clear gun:tdm/spawnpoints
 spawnpoint @a 0 101 0
 schedule clear gun:selectors/loop

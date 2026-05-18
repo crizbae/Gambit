@@ -6,7 +6,7 @@ tag @a[tag=Red,gamemode=!creative,gamemode=!spectator] remove gun_in_lobby
 tag @a[tag=Blue,gamemode=!creative,gamemode=!spectator] remove gun_in_lobby
 yawp global add flag item-drop Denied
 gamerule keepInventory true
-trapdoor off
+lockserver
 gamerule reducedDebugInfo true
 gamerule announceAdvancements false
 gamerule doDaylightCycle false
@@ -63,6 +63,7 @@ execute as @a[tag=Red,gamemode=!creative,gamemode=!spectator] run item replace e
 execute as @a[tag=Blue,gamemode=!creative,gamemode=!spectator] run item replace entity @s hotbar.2 from entity @s hotbar.3
 execute as @a[tag=Blue,gamemode=!creative,gamemode=!spectator] run item replace entity @s hotbar.3 from entity @s hotbar.4
 execute as @a[tag=Blue,gamemode=!creative,gamemode=!spectator] run item replace entity @s hotbar.4 with minecraft:air
+scoreboard objectives setdisplay sidebar
 function gun:countdown/start
 team join red @a[tag=Red]
 team join blue @a[tag=Blue]

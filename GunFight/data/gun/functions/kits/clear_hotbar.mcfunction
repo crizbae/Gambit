@@ -1,5 +1,5 @@
-item replace entity @s hotbar.3 with minecraft:air
-item replace entity @s hotbar.4 with minecraft:air
-item replace entity @s hotbar.5 with minecraft:air
-item replace entity @s hotbar.6 with minecraft:air
+execute unless data entity @s Inventory[{Slot:3b,tag:{GambitVote:1b}}] unless data entity @s Inventory[{Slot:3b,tag:{GambitVote:2b}}] unless data entity @s Inventory[{Slot:3b,tag:{GambitVote:3b}}] unless data entity @s Inventory[{Slot:3b,tag:{GambitVote:4b}}] run item replace entity @s hotbar.3 with minecraft:air
+execute unless data entity @s Inventory[{Slot:4b,tag:{GambitVote:1b}}] unless data entity @s Inventory[{Slot:4b,tag:{GambitVote:2b}}] unless data entity @s Inventory[{Slot:4b,tag:{GambitVote:3b}}] unless data entity @s Inventory[{Slot:4b,tag:{GambitVote:4b}}] run item replace entity @s hotbar.4 with minecraft:air
+execute unless data entity @s Inventory[{Slot:5b,tag:{GambitVote:1b}}] unless data entity @s Inventory[{Slot:5b,tag:{GambitVote:2b}}] unless data entity @s Inventory[{Slot:5b,tag:{GambitVote:3b}}] unless data entity @s Inventory[{Slot:5b,tag:{GambitVote:4b}}] run item replace entity @s hotbar.5 with minecraft:air
+execute unless data entity @s Inventory[{Slot:6b,tag:{GambitVote:1b}}] unless data entity @s Inventory[{Slot:6b,tag:{GambitVote:2b}}] unless data entity @s Inventory[{Slot:6b,tag:{GambitVote:3b}}] unless data entity @s Inventory[{Slot:6b,tag:{GambitVote:4b}}] run item replace entity @s hotbar.6 with minecraft:air
 
