@@ -32,6 +32,7 @@ var LEADERBOARD_MIN_MATCHES_MODE = 3;
 var LEADERBOARD_MIN_MATCHES      = 10;
 var STATS_FLUSH_INTERVAL_TICKS   = 200;
 var STATS_FILE_PATH              = 'kubejs/data/gambit_stats.json';
+var DEV_CONFIG_PATH              = 'kubejs/data/gambit_dev_config.json';
 
 // ── In-memory stat store ─────────────────────────────────────
 var stats     = {};
@@ -49,8 +50,26 @@ function isUuidKey(key) {
 // ── Stat tracking gate ───────────────────────────────────────
 // When false, no lifetime stats are written or persisted.
 // roundStats still accumulates so postgame displays work.
-// Toggled by /gambitstats tracking on|off and by tournament mode.
-var statsTrackingEnabled = true;
+// Persisted in gambit_dev_config.json so the setting survives restarts.
+// Toggled by /stats admin tracking on|off.
+var statsTrackingEnabled = (function() {
+  try {
+    var _cfg = JsonIO.read(DEV_CONFIG_PATH);
+    if (_cfg && typeof _cfg.stats_tracking !== 'undefined') return !!_cfg.stats_tracking;
+  } catch (_e) {}
+  return true; // default on
+})();
+
+function _saveDevConfig() {
+  try {
+    var _cfg = {};
+    try { _cfg = JsonIO.read(DEV_CONFIG_PATH) || {}; } catch (_re) {}
+    _cfg.stats_tracking = statsTrackingEnabled;
+    JsonIO.write(DEV_CONFIG_PATH, _cfg);
+  } catch (_e) {
+    console.error('[Gambit Dev] Failed to save dev config: ' + _e);
+  }
+}
 
 // Staging var: set to 'red'/'blue' by applyMatchResult(addWin=true), consumed by broadcastPostGameScoreboard
 var pendingHistoryWinner = null;
@@ -1330,3 +1349,4 @@ function saveStatsToDisk() {
 
 // Load stats immediately on script evaluation (runs on both server start and /reload)
 loadStatsFromDisk();
+console.info('[Gambit Stats] Stat tracking is ' + (statsTrackingEnabled ? 'ENABLED' : 'DISABLED') + ' (persisted via gambit_dev_config.json — use /stats admin tracking on|off to change)');

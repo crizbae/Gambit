@@ -7,3 +7,4 @@ tag @s remove flanker
 tag @s remove sniper
 tag @s remove sentry
 tag @s remove covert
+tag @s remove gunslinger

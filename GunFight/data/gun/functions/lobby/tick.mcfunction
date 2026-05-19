@@ -10,8 +10,9 @@ execute as @a[team=lobby,tag=!gun_optout,gamemode=adventure,tag=sniper] run titl
 execute as @a[team=lobby,tag=!gun_optout,gamemode=adventure,tag=ranger] run title @s actionbar [{"text":"Kit: ","color":"gray"},{"text":"Ranger","color":"green","bold":true}]
 execute as @a[team=lobby,tag=!gun_optout,gamemode=adventure,tag=burst] run title @s actionbar [{"text":"Kit: ","color":"gray"},{"text":"Burst","color":"yellow","bold":true}]
 execute as @a[team=lobby,tag=!gun_optout,gamemode=adventure,tag=sentry] run title @s actionbar [{"text":"Kit: ","color":"gray"},{"text":"Sentry","color":"light_purple","bold":true}]
-execute as @a[team=lobby,tag=!gun_optout,gamemode=adventure,tag=covert] run title @s actionbar [{"text":"Kit: ","color":"gray"},{"text":"Covert","color":"dark_gray","bold":true}]
-execute as @a[team=lobby,tag=!gun_optout,gamemode=adventure,tag=!assault,tag=!breacher,tag=!flanker,tag=!marksman,tag=!sniper,tag=!ranger,tag=!burst,tag=!sentry,tag=!covert] run title @s actionbar {"text":"No kit selected — visit the armory","color":"gray","italic":true}
+execute as @a[team=lobby,tag=!gun_optout,gamemode=adventure,tag=covert] run title @s actionbar [{"text":"Kit: ","color":"gray"},{"text":"Covert","color":"#964B00","bold":true}]
+execute as @a[team=lobby,tag=!gun_optout,gamemode=adventure,tag=gunslinger] run title @s actionbar [{"text":"Kit: ","color":"gray"},{"text":"Gunslinger","color":"dark_green","bold":true}]
+execute as @a[team=lobby,tag=!gun_optout,gamemode=adventure,tag=!assault,tag=!breacher,tag=!flanker,tag=!marksman,tag=!sniper,tag=!ranger,tag=!burst,tag=!sentry,tag=!covert,tag=!gunslinger] run title @s actionbar {"text":"No kit currently selected","color":"gray","italic":true}
 
 # Sumo tag: players standing on white or red wool in the sumo arena get the tag
 execute as @a[x=-44,y=102,z=32,dx=13,dy=5,dz=13] at @s if block ~ ~-1 ~ minecraft:white_wool run tag @s add sumo

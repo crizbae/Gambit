@@ -15,8 +15,8 @@ var ATTACKER_CACHE_CLEANUP_INTERVAL_TICKS = 200;
 
 // ── Canonical kit list (Item 3) ───────────────────────────────
 // Single source of truth for JS. Used by loggedOut cleanup.
-var VALID_KITS = ['assault', 'breacher', 'burst', 'flanker', 'marksman', 'ranger', 'sniper', 'sentry', 'covert'];
-var ANALYTICS_KITS = ['assault', 'breacher', 'burst', 'flanker', 'marksman', 'ranger', 'sniper', 'sentry', 'covert'];
+var VALID_KITS = ['assault', 'breacher', 'burst', 'flanker', 'marksman', 'ranger', 'sniper', 'sentry', 'covert', 'gunslinger'];
+var ANALYTICS_KITS = ['assault', 'breacher', 'burst', 'flanker', 'marksman', 'ranger', 'sniper', 'sentry', 'covert', 'gunslinger'];
 
 // ── Runtime tracking state ────────────────────────────────────
 var recentPlayerAttackers = {};
@@ -44,6 +44,7 @@ var _KILL_MSGS            = [' was killed by '];
 var _TOURNAMENT_KILL_MSGS = [' was shot by '];
 var _EXECUTION_MSGS       = [' was finished by '];
 var _SOLO_EXECUTION_MSGS  = [' was executed.'];
+var _FIRST_BLOOD_MSGS     = [' drew first blood on '];
 
 function _analyticsGetPlayerId(player) {
   if (!player) return null;
@@ -191,6 +192,10 @@ function loadKillMessages() {
       _SOLO_EXECUTION_MSGS = [];
       for (var _i = 0; _i < raw.solo_execution.length; _i++) _SOLO_EXECUTION_MSGS.push(String(raw.solo_execution[_i]));
     }
+    if (raw.first_blood && raw.first_blood.length > 0) {
+      _FIRST_BLOOD_MSGS = [];
+      for (var _i = 0; _i < raw.first_blood.length; _i++) _FIRST_BLOOD_MSGS.push(String(raw.first_blood[_i]));
+    }
   } catch (e) {
     console.error('[Gambit] Failed to load kill messages config: ' + e);
   }
@@ -318,6 +323,18 @@ PlayerEvents.loggedIn(function(event) {
   // Ensure player is in lobby team (covers first-ever login and post-reload edge cases)
   player.server.runCommandSilent('team join lobby ' + name);
 
+  // Mid-match join: auto-spectate so the player isn't stranded at spawn.
+  if (!player.hasPermissions(2)
+      && typeof matchActive !== 'undefined' && matchActive
+      && typeof currentMapId !== 'undefined' && currentMapId !== 0) {
+    var _joinMap = typeof getMapById === 'function' ? getMapById(currentMapId) : null;
+    player.server.runCommandSilent('gamemode spectator ' + name);
+    if (_joinMap && _joinMap.spectator) {
+      player.server.runCommandSilent('execute in minecraft:overworld run tp ' + name + ' ' + _joinMap.spectator);
+    }
+    player.tell('§e[Gambit] A match was in progress when you joined — you have been placed into spectator mode.');
+  }
+
   // Reset down counter on join so a disconnect/reconnect between matches starts clean.
   writeTagNumber(player.persistentData, PD_DOWNS, 0, true);
   player.server.runCommandSilent('scoreboard players set ' + name + ' gun_downs 0');
@@ -325,6 +342,9 @@ PlayerEvents.loggedIn(function(event) {
   if (stats[String(player.uuid)]) { saveEntryToPlayer(player); return; }
   loadEntryFromPlayer(player);
   markStatsDirty();
+
+  // Give the guide book directly — more reliable than the lobby tick command chain.
+  if (typeof _giveGuideBook === 'function') _giveGuideBook(player);
 });
 
 // ── Respawn ───────────────────────────────────────────────────
@@ -696,7 +716,6 @@ EntityEvents.hurt(function(event) {
         if (!firstDownerNames[victimName]) firstDownerNames[victimName] = downerNameHurt;
       }
     }
-    if (victimName) currentStreaks[victimName] = 0;
 
     // If the player is already in a downed window, do not re-run down-cap execution
     // logic. Let the incoming damage resolve naturally so vanilla death attribution
@@ -858,10 +877,11 @@ EntityEvents.death(function(event) {
     var _vColor = dead
       ? (hasTagSafe(dead, 'Red') ? 'red' : (hasTagSafe(dead, 'Blue') ? 'aqua' : 'red'))
       : 'red';
+    var _fbMsg = _FIRST_BLOOD_MSGS[Math.floor(Math.random() * _FIRST_BLOOD_MSGS.length)];
     event.server.runCommandSilent('tellraw @a ["",' +
       '{"text":"\u2620 FIRST BLOOD ","color":"dark_red","bold":true},' +
       '{"text":"' + killerName.replace(/"/g, '') + '","color":"' + _kColor + '","bold":true},' +
-      '{"text":" drew first blood on ","color":"dark_red","bold":true},' +
+      '{"text":"' + _fbMsg + '","color":"dark_red","bold":true},' +
       '{"text":"' + deadName.replace(/"/g, '') + '","color":"' + _vColor + '","bold":true}' +
     ']');
   }

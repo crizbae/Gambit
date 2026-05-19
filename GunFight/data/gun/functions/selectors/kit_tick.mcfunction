@@ -9,6 +9,7 @@ execute as @a[team=lobby,tag=!ranger,gamemode=adventure] at @s if block ~ ~-1 ~ 
 execute as @a[team=lobby,tag=!burst,gamemode=adventure] at @s if block ~ ~-1 ~ yellow_stained_glass if block ~ ~-2 ~ glowstone if block ~ ~-3 ~ dried_kelp_block run function gun:selectors/burst
 execute as @a[team=lobby,tag=!sentry,gamemode=adventure] at @s if block ~ ~-1 ~ pink_stained_glass if block ~ ~-2 ~ pink_glazed_terracotta if block ~ ~-3 ~ dried_kelp_block run function gun:selectors/sentry
 execute as @a[team=lobby,tag=!covert,gamemode=adventure] at @s if block ~ ~-1 ~ brown_stained_glass if block ~ ~-2 ~ ochre_froglight if block ~ ~-3 ~ dried_kelp_block run function gun:selectors/covert
+execute as @a[team=lobby,tag=!gunslinger,gamemode=adventure] at @s if block ~ ~-1 ~ green_stained_glass if block ~ ~-2 ~ bamboo_block if block ~ ~-3 ~ dried_kelp_block run function gun:selectors/gunslinger
 
 # TDM: allow pad selection directly for active Red/Blue players.
 execute as @a[tag=Red,tag=!marksman,gamemode=adventure] at @s if block ~ ~-1 ~ blue_stained_glass if block ~ ~-2 ~ sea_lantern if block ~ ~-3 ~ dried_kelp_block run function gun:selectors/marksman
@@ -20,6 +21,7 @@ execute as @a[tag=Red,tag=!ranger,gamemode=adventure] at @s if block ~ ~-1 ~ lim
 execute as @a[tag=Red,tag=!burst,gamemode=adventure] at @s if block ~ ~-1 ~ yellow_stained_glass if block ~ ~-2 ~ glowstone if block ~ ~-3 ~ dried_kelp_block run function gun:selectors/burst
 execute as @a[tag=Red,tag=!sentry,gamemode=adventure] at @s if block ~ ~-1 ~ pink_stained_glass if block ~ ~-2 ~ pink_glazed_terracotta if block ~ ~-3 ~ dried_kelp_block run function gun:selectors/sentry
 execute as @a[tag=Red,tag=!covert,gamemode=adventure] at @s if block ~ ~-1 ~ brown_stained_glass if block ~ ~-2 ~ ochre_froglight if block ~ ~-3 ~ dried_kelp_block run function gun:selectors/covert
+execute as @a[tag=Red,tag=!gunslinger,gamemode=adventure] at @s if block ~ ~-1 ~ green_stained_glass if block ~ ~-2 ~ bamboo_block if block ~ ~-3 ~ dried_kelp_block run function gun:selectors/gunslinger
 execute as @a[tag=Blue,tag=!marksman,gamemode=adventure] at @s if block ~ ~-1 ~ blue_stained_glass if block ~ ~-2 ~ sea_lantern if block ~ ~-3 ~ dried_kelp_block run function gun:selectors/marksman
 execute as @a[tag=Blue,tag=!breacher,gamemode=adventure] at @s if block ~ ~-1 ~ orange_stained_glass if block ~ ~-2 ~ honeycomb_block if block ~ ~-3 ~ dried_kelp_block run function gun:selectors/breacher
 execute as @a[tag=Blue,tag=!flanker,gamemode=adventure] at @s if block ~ ~-1 ~ light_blue_stained_glass if block ~ ~-2 ~ prismarine if block ~ ~-3 ~ dried_kelp_block run function gun:selectors/flanker
@@ -29,3 +31,4 @@ execute as @a[tag=Blue,tag=!ranger,gamemode=adventure] at @s if block ~ ~-1 ~ li
 execute as @a[tag=Blue,tag=!burst,gamemode=adventure] at @s if block ~ ~-1 ~ yellow_stained_glass if block ~ ~-2 ~ glowstone if block ~ ~-3 ~ dried_kelp_block run function gun:selectors/burst
 execute as @a[tag=Blue,tag=!sentry,gamemode=adventure] at @s if block ~ ~-1 ~ pink_stained_glass if block ~ ~-2 ~ pink_glazed_terracotta if block ~ ~-3 ~ dried_kelp_block run function gun:selectors/sentry
 execute as @a[tag=Blue,tag=!covert,gamemode=adventure] at @s if block ~ ~-1 ~ brown_stained_glass if block ~ ~-2 ~ ochre_froglight if block ~ ~-3 ~ dried_kelp_block run function gun:selectors/covert
+execute as @a[tag=Blue,tag=!gunslinger,gamemode=adventure] at @s if block ~ ~-1 ~ green_stained_glass if block ~ ~-2 ~ bamboo_block if block ~ ~-3 ~ dried_kelp_block run function gun:selectors/gunslinger

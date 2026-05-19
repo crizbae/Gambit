@@ -153,6 +153,81 @@ function showSessionLeaderboard(player, mode) {
   player.tell('§6§l──────────────────────────');
 }
 
+// ── Guide book builder ──────────────────────────────────────────────────────
+// Global so it can be called from PlayerEvents.loggedIn in gambit_tracker.js
+// as well as from the gambit_give_guide command.
+function _giveGuideBook(player) {
+  if (!player || !player.give) return;
+
+  // Build an SNBT single-quoted page string from a JS component array.
+  // JSON.stringify converts \n to \\n in the JSON string output.
+  // Doubling backslashes first ensures SNBT preserves them as-is so the
+  // text component parser later sees a real newline escape sequence.
+  function page(components) {
+    var json = JSON.stringify(components)
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "\\'");
+    return "'" + json + "'";
+  }
+
+  var pages = [
+    // ── Page 1: Cover ──
+    page([
+      { text: 'GAMBIT\n\n', color: 'dark_blue', bold: true },
+      { text: 'A quick guide to\ngetting started.\n\n', color: 'dark_gray' },
+      { text: 'Modes · Downs\nCommands · Items', color: 'black', italic: true }
+    ]),
+
+    // ── Page 2: Elimination ──
+    page([
+      { text: 'ELIMINATION\n\n', color: 'dark_red', bold: true },
+      { text: 'One life each.\nWipe the enemy team\nto win the match.', color: 'black' }
+    ]),
+
+    // ── Page 3: Team Deathmatch ──
+    page([
+      { text: 'TEAM DEATHMATCH\n\n', color: 'dark_aqua', bold: true },
+      { text: 'Respawns enabled.\nFirst team to reach\nthe kill target wins.', color: 'black' }
+    ]),
+
+    // ── Page 4: Down System ──
+    page([
+      { text: 'DOWN SYSTEM\n\n', color: 'dark_red', bold: true },
+      { text: 'Lethal hits down you\ninstead of killing\nyou outright.\n\n', color: 'black' },
+      { text: 'Teammates can revive\nyou with a syringe.\n\n', color: 'black' },
+      { text: 'After 1 down, the\nnext lethal hit\nkills you. No revive.', color: 'black' }
+    ]),
+
+    // ── Page 5: Commands ──
+    page([
+      { text: 'COMMANDS\n\n', color: 'dark_blue', bold: true },
+      { text: '/play\n', color: 'dark_green' },
+      { text: 'Queue for a match.\n\n', color: 'black' },
+      { text: '/spectate\n', color: 'dark_green' },
+      { text: 'Watch without playing.\n\n', color: 'black' },
+      { text: '/queue\n', color: 'dark_green' },
+      { text: 'Check your status.\n\n', color: 'black' },
+      { text: '/stats\n', color: 'dark_green' },
+      { text: 'Full stats guide\nand leaderboards.', color: 'black' }
+    ]),
+
+    // ── Page 6: Items ──
+    page([
+      { text: 'ITEMS\n\n', color: 'dark_blue', bold: true },
+      { text: 'Finisher\n', color: 'dark_red', bold: true },
+      { text: 'Iron sword. Execute\ndowned enemies.\n\n', color: 'black' },
+      { text: 'Syringe\n', color: 'aqua', bold: true },
+      { text: 'Revives a downed\nteammate.\n\n', color: 'black' },
+      { text: 'Pills & Morphine\n', color: 'green', bold: true },
+      { text: 'Healing items given\nwith your kit.', color: 'black' }
+    ]),
+  ];
+
+  var displayName = '{"text":"Gambit Field Manual","color":"gold","italic":false,"bold":true}';
+  var nbt = '{title:"Gambit Field Manual",author:"Gambit Command",pages:[' + pages.join(',') + '],display:{Name:\'' + displayName + '\'}}';
+  player.give(Item.of('minecraft:written_book', nbt));
+}
+
 ServerEvents.commandRegistry(function(event) {
   var Commands = event.commands;
 
@@ -417,7 +492,7 @@ ServerEvents.commandRegistry(function(event) {
             var caller = ctx.source.player;
             if (caller && caller.tell) {
               caller.tell('§6§l── Gambit Stats Admin ──');
-              caller.tell('§e/stats admin tracking on|off');
+              caller.tell('§e/stats admin tracking on|off|status');
               caller.tell('§e/stats admin addwin <player|red|blue|all>');
               caller.tell('§e/stats admin reset all|<player>');
               caller.tell('§e/stats admin reset-session <player>');
@@ -425,13 +500,14 @@ ServerEvents.commandRegistry(function(event) {
             return 1;
           })
 
-          // /stats admin tracking on|off
+          // /stats admin tracking on|off|status
           .then(
             Commands.literal('tracking')
               .then(
                 Commands.literal('on')
                   .executes(function(ctx) {
                     statsTrackingEnabled = true;
+                    _saveDevConfig();
                     ctx.source.server.runCommandSilent(
                       'tellraw @a ["",{"text":"[Gambit] ","color":"gray"},{"text":"Stat tracking enabled.","color":"green"}]'
                     );
@@ -442,9 +518,22 @@ ServerEvents.commandRegistry(function(event) {
                 Commands.literal('off')
                   .executes(function(ctx) {
                     statsTrackingEnabled = false;
+                    _saveDevConfig();
                     ctx.source.server.runCommandSilent(
                       'tellraw @a ["",{"text":"[Gambit] ","color":"gray"},{"text":"Stat tracking disabled.","color":"red"}]'
                     );
+                    return 1;
+                  })
+              )
+              .then(
+                Commands.literal('status')
+                  .executes(function(ctx) {
+                    var caller = ctx.source.player;
+                    if (caller && caller.tell) {
+                      var state = (typeof statsTrackingEnabled !== 'undefined' && statsTrackingEnabled)
+                        ? '§aENABLED' : '§cDISABLED';
+                      caller.tell('§6[Gambit Stats] Tracking is currently: ' + state);
+                    }
                     return 1;
                   })
               )
@@ -1069,105 +1158,22 @@ ServerEvents.commandRegistry(function(event) {
 
   // ── gambit_give_guide ─────────────────────────────────────
   // Called from gun:lobby/give_guide when a player lacks the field manual.
-  // Builds the book in JS so pages are readable and \n escaping is handled
-  // automatically by JSON.stringify.
+  // Player resolution: ctx.source.player is null when invoked via
+  // "execute as @a ... run function", so fall back to a server player
+  // lookup using the executing entity's username.
   event.register(
     Commands.literal('gambit_give_guide')
       .executes(function(ctx) {
-        // ctx.source.player is null when invoked via "execute as @a ... run function"
-        // because the entity is set but KubeJS only fills .player for direct player invocations.
-        // Fall back to ctx.source.entity, which is the @s entity set by execute.
         var player = ctx.source.player;
-        if (!player) {
-          try { player = ctx.source.entity; } catch (e) {}
+        if (!player || !player.give) {
+          try {
+            var entity = ctx.source.entity;
+            var ename = entity && (entity.username || (entity.name && entity.name.string));
+            if (ename) player = getOnlinePlayerByName(ctx.source.server, ename);
+          } catch(e) {}
         }
         if (!player || !player.give) return 1;
-
-        // Build an SNBT single-quoted page string from a JS component array.
-        // JSON.stringify converts JS newlines (\n char) to \\n (backslash + n) in the JSON.
-        // However, Minecraft's SNBT parser treats \n in quoted strings as a real newline,
-        // which would produce invalid JSON when the page is later parsed by the text component
-        // system. Doubling all backslashes first ensures SNBT stores \n (backslash + n) as-is,
-        // which JSON then correctly reads as a newline character.
-        function page(components) {
-          var json = JSON.stringify(components)
-            .replace(/\\/g, '\\\\')   // double all backslashes so SNBT preserves them
-            .replace(/'/g, "\\'");     // escape single quotes for SNBT single-quoted strings
-          return "'" + json + "'";
-        }
-
-        var pages = [
-          // ── Page 1: Cover ──
-          page([
-            { text: 'GAMBIT\nFIELD MANUAL\n', color: 'dark_blue',  bold: true },
-            { text: 'Issued to all active operators.\n\n', color: 'dark_gray' },
-            { text: 'Contents\n', color: 'dark_green', bold: true },
-            { text: 'I.   Elimination\nII.  Team Deathmatch\nIII. Down System\nIV.  Deployment\nV.   Stats', color: 'black' }
-          ]),
-
-          // ── Page 2: Elimination ──
-          page([
-            { text: 'I. ELIMINATION\n', color: 'dark_red', bold: true },
-            { text: '\nOne life per round.\nDead operators sit out until\nthe next round begins.\n\n', color: 'black' },
-            { text: 'Objective\n', color: 'dark_green', bold: true },
-            { text: 'Wipe the enemy team.\nLast team alive wins the round.\nFirst team to win enough\nrounds wins the match.', color: 'black' }
-          ]),
-
-          // ── Page 3: TDM ──
-          page([
-            { text: 'II. TEAM DEATHMATCH\n', color: 'dark_aqua', bold: true },
-            { text: '\nOperators respawn on death.\nMatch ends when a team\nhits the kill target.\n\n', color: 'black' },
-            { text: 'Objective\n', color: 'dark_green', bold: true },
-            { text: 'Reach the kill target before\nthe enemy team.\n\nKill streaks give personal\nloot at 4, 8, and 12 kills.', color: 'black' }
-          ]),
-
-          // ── Page 4: Down system ──
-          page([
-            { text: 'III. DOWN SYSTEM\n', color: 'dark_red', bold: true },
-            { text: '\nLethal hits down you instead\nof killing you outright.\nA downed operator can be\nrevived by a teammate\nwith a syringe.\n\nToo many downs in one life\nand the next hit is a real\nkill. No revive possible.', color: 'black' }
-          ]),
-
-          // ── Page 5: Deployment ──
-          page([
-            { text: 'IV. DEPLOYMENT\n', color: 'dark_green', bold: true },
-            { text: '\n', color: 'black' },
-            { text: '/play\n',      color: 'dark_blue' },
-            { text: 'Join the match queue.\n\n', color: 'black' },
-            { text: '/spectate\n',  color: 'dark_blue' },
-            { text: 'Stand down and spectate.\n\n', color: 'black' },
-            { text: '/queue\n',     color: 'dark_blue' },
-            { text: 'Check your current status.', color: 'black' }
-          ]),
-
-          // ── Page 6: Stats overview ──
-          page([
-            { text: 'V. STATS\n', color: 'dark_purple', bold: true },
-            { text: '\nTrack your personal cards,\nleaderboards, and top metrics\nfrom one command menu.\n\n', color: 'black' },
-            { text: 'Use ', color: 'black' },
-            { text: '/stats\n', color: 'dark_blue' },
-            { text: 'for the full list and usage\nof all stats commands.\n\n', color: 'black' },
-            { text: 'Tip\n', color: 'dark_green', bold: true },
-            { text: 'Add a player name after\nsession/global/history\nto inspect another operator.', color: 'black' }
-          ]),
-
-          // ── Page 7: Quick reference ──
-          page([
-            { text: 'VI. QUICK REFERENCE\n', color: 'dark_blue', bold: true },
-            { text: '\nLobby Commands\n', color: 'dark_green', bold: true },
-            { text: '/play\n/spectate\n/queue\n\n', color: 'black' },
-            { text: 'Stats Commands\n', color: 'dark_green', bold: true },
-            { text: '/stats\n', color: 'black' },
-            { text: 'Shows the full command guide\nand examples in chat.\n\n', color: 'black' },
-            { text: 'Good hunting, operator.', color: 'dark_gray', italic: true }
-          ]),
-          
-        ];
-
-        var displayName = '{"text":"Gambit Field Manual","color":"gold","italic":false,"bold":true}';
-        var nbt = '{title:"Gambit Field Manual",author:"Gambit Command",pages:[' + pages.join(',') + '],display:{Name:\'' + displayName + '\'}}';
-        // Use player.give() directly — avoids an extra command-string parsing layer
-        // that could mis-handle escape sequences in the NBT.
-        player.give(Item.of('minecraft:written_book', nbt));
+        _giveGuideBook(player);
         return 1;
       })
   );

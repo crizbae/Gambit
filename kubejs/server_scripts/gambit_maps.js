@@ -165,9 +165,20 @@ var MAPS = [
     preset: 'freight',
     modes: ['tdm'],
     disc: 'minecraft:music_disc_mellohi',
+    time: 13200,
     red_spawn: '-949.42 74.00 1050.50 90.27 0.90',
     blue_spawn: '-1049.53 74.00 1050.51 270.27 2.25',
     spectator: '-999.50 76.00 1002.34 -0.03 3.71'
+  },
+  {
+    id: 17,
+    name: 'New Trenches',
+    preset: 'newtrenches',
+    noVote: true,
+    modes: ['elimination'],
+    blue_spawn: '-5087.50 85.00 1001.48 1350.29 -4.18',
+    red_spawn: '-4913.48 85.00 997.50 1890.59 -0.90',
+    spectator: '-5000.67 103.42 1031.95 180.21 13.82'
   }
   
 ];
@@ -197,6 +208,28 @@ var voteLastSecondsLeft        = -1;
 var voteExcludeMapId           = 0;  // map just played — excluded from random pick
 var voteRoundCounter           = 0;
 var pendingVoteRowsForMatch    = []; // consumed by gambit_log_match for analytics persistence
+
+// ── Vote enabled toggle ──────────────────────────────────────
+// Persisted in gambit_dev_config.json. When false, _startVote is a no-op.
+// Toggle with /gambitvote enable|disable.
+var voteEnabled = (function() {
+  try {
+    var _cfg = JsonIO.read('kubejs/data/gambit_dev_config.json');
+    if (_cfg && typeof _cfg.vote_enabled !== 'undefined') return !!_cfg.vote_enabled;
+  } catch (_e) {}
+  return true;
+})();
+
+function _saveVoteConfig() {
+  try {
+    var _cfg = {};
+    try { _cfg = JsonIO.read('kubejs/data/gambit_dev_config.json') || {}; } catch (_re) {}
+    _cfg.vote_enabled = voteEnabled;
+    JsonIO.write('kubejs/data/gambit_dev_config.json', _cfg);
+  } catch (_e) {
+    console.error('[Gambit] Failed to save vote config: ' + _e);
+  }
+}
 
 // ── Helpers ──────────────────────────────────────────────────
 function getMapById(id) {
@@ -483,7 +516,7 @@ function _resolveVote(server) {
 
 function _startVote(server, excludeMapId) {
   var tournamentActive = typeof tournamentMode !== 'undefined' && tournamentMode;
-  if (tournamentActive) {
+  if (tournamentActive || !voteEnabled) {
     voteActive = false;
     voteOptions = [];
     voteChoices = {};
@@ -625,6 +658,7 @@ function _executeStart(server) {
         'tellraw @a ["",{"text":"[Tournament] ","color":"gold"},{"text":"Cannot start — both rosters must have at least one player. Use /tournament red and /tournament blue.","color":"red"}]'
       );
       // Roll back state set above so a subsequent /start works cleanly.
+      matchActive     = false;
       currentMapId    = 0;
       currentModeId   = 0;
       matchStartTime  = 0;
@@ -966,6 +1000,40 @@ ServerEvents.commandRegistry(function (event) {
           })
       )
       .then(
+        Commands.literal('disable')
+          .requires(function (src) { return src.hasPermission(2); })
+          .executes(function (ctx) {
+            voteEnabled = false;
+            _saveVoteConfig();
+            voteActive = false;
+            voteOptions = [];
+            voteChoices = {};
+            voteChoiceMeta = {};
+            voteTicksLeft = 0;
+            voteLastSecondsLeft = -1;
+            autostartTicksLeft = 0;
+            autostartLastSecondsLeft = -1;
+            ctx.source.server.runCommandSilent('bossbar set gun:nextmap visible false');
+            _removeVotePapers(ctx.source.server);
+            ctx.source.server.runCommandSilent(
+              'tellraw @a ["",{"text":"[Gambit] ","color":"gray"},{"text":"Map voting disabled.","color":"red"}]'
+            );
+            return 1;
+          })
+      )
+      .then(
+        Commands.literal('enable')
+          .requires(function (src) { return src.hasPermission(2); })
+          .executes(function (ctx) {
+            voteEnabled = true;
+            _saveVoteConfig();
+            ctx.source.server.runCommandSilent(
+              'tellraw @a ["",{"text":"[Gambit] ","color":"gray"},{"text":"Map voting enabled.","color":"green"}]'
+            );
+            return 1;
+          })
+      )
+      .then(
         Commands.literal('start')
           .requires(function (src) { return src.hasPermission(2); })
           .executes(function (ctx) {
@@ -981,6 +1049,41 @@ ServerEvents.commandRegistry(function (event) {
             return 1;
           })
       )
+  );
+
+  // ── gambit_restore_vote_paper ──────────────────────────────
+  // Called from gun:kits/clear_hotbar after a full inventory clear.
+  // Re-gives all vote papers to the executing player if a vote is active.
+  event.register(
+    Commands.literal('gambit_restore_vote_paper')
+      .executes(function(ctx) {
+        if (!voteActive || voteOptions.length === 0) return 1;
+        var player = ctx.source.player;
+        if (!player || !player.give) {
+          try {
+            var entity = ctx.source.entity;
+            var ename = entity && (entity.username || (entity.name && entity.name.string));
+            if (ename) player = getOnlinePlayerByName(ctx.source.server, ename);
+          } catch(e) {}
+        }
+        if (!player || !player.give) return 1;
+        if (player.isCreative() || player.isSpectator()) return 1;
+        var opts = voteOptions;
+        for (var i = 0; i < 3; i++) {
+          if (!opts[i]) continue;
+          var opt = opts[i];
+          var modeCol = opt.modeId === 1 ? 'aqua' : 'green';
+          var nameJson = '[{"text":"' + opt.name + '","color":"white","italic":false},{"text":" \u2014 ' + opt.modeName + '","color":"' + modeCol + '","italic":false}]';
+          var lore1 = '{"text":"Right-click to vote","color":"gray","italic":true}';
+          var nbt = "{display:{Name:'" + nameJson + "',Lore:['" + lore1 + "']},GambitVote:" + (i + 1) + "b}";
+          player.give(Item.of(opt.disc, nbt));
+        }
+        var randomName = '{"text":"Random Map","color":"light_purple","italic":false}';
+        var randomLore = '{"text":"Right-click to vote","color":"gray","italic":true}';
+        var randomNbt = "{display:{Name:'" + randomName + "',Lore:['" + randomLore + "']},GambitVote:4b}";
+        player.give(Item.of('minecraft:music_disc_pigstep', randomNbt));
+        return 1;
+      })
   );
 });
 

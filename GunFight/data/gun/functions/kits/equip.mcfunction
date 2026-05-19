@@ -7,3 +7,4 @@ execute as @a[tag=ranger,gamemode=!creative,gamemode=!spectator,tag=!gun_optout]
 execute as @a[tag=burst,gamemode=!creative,gamemode=!spectator,tag=!gun_optout] run function gun:kits/single/burst
 execute as @a[tag=sentry,gamemode=!creative,gamemode=!spectator,tag=!gun_optout] run function gun:kits/single/sentry
 execute as @a[tag=covert,gamemode=!creative,gamemode=!spectator,tag=!gun_optout] run function gun:kits/single/covert
+execute as @a[tag=gunslinger,gamemode=!creative,gamemode=!spectator,tag=!gun_optout] run function gun:kits/single/gunslinger

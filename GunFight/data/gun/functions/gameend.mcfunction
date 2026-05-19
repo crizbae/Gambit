@@ -35,5 +35,5 @@ schedule clear gun:tdm/spawnpoints
 spawnpoint @a 0 101 0
 schedule clear gun:selectors/loop
 schedule function gun:selectors/loop 1t
-time set 18000
+time set 13200
 gambit_match_end

@@ -3,11 +3,13 @@ team modify red friendlyFire false
 team modify red nametagVisibility never
 team modify red color red
 team modify red prefix "[Red] "
+team modify red collisionRule never
 team add blue "Blue"
 team modify blue friendlyFire false
 team modify blue nametagVisibility never
 team modify blue color aqua
 team modify blue prefix "[Blue] "
+team modify blue collisionRule never
 team add lobby "Lobby"
 team modify lobby friendlyFire false
 team modify lobby collisionRule never

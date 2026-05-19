@@ -29,8 +29,8 @@ execute as @a[tag=Red,gamemode=!creative] run scoreboard players operation @s gu
 execute as @a[tag=Blue,gamemode=!creative] run scoreboard players operation @s gun_deaths_prev = @s gun_deaths
 execute as @a[tag=Red,gamemode=!creative] run scoreboard players operation @s tdm_deaths_counted = @s gun_deaths
 execute as @a[tag=Blue,gamemode=!creative] run scoreboard players operation @s tdm_deaths_counted = @s gun_deaths
-execute as @a[tag=Red,tag=!marksman,tag=!breacher,tag=!flanker,tag=!assault,tag=!sniper,tag=!ranger,tag=!burst,tag=!sentry,tag=!covert,gamemode=!creative,gamemode=!spectator] run tag @s add assault
-execute as @a[tag=Blue,tag=!marksman,tag=!breacher,tag=!flanker,tag=!assault,tag=!sniper,tag=!ranger,tag=!burst,tag=!sentry,tag=!covert,gamemode=!creative,gamemode=!spectator] run tag @s add assault
+execute as @a[tag=Red,tag=!marksman,tag=!breacher,tag=!flanker,tag=!assault,tag=!sniper,tag=!ranger,tag=!burst,tag=!sentry,tag=!covert,tag=!gunslinger,gamemode=!creative,gamemode=!spectator] run tag @s add assault
+execute as @a[tag=Blue,tag=!marksman,tag=!breacher,tag=!flanker,tag=!assault,tag=!sniper,tag=!ranger,tag=!burst,tag=!sentry,tag=!covert,tag=!gunslinger,gamemode=!creative,gamemode=!spectator] run tag @s add assault
 execute as @a[tag=Red,gamemode=!creative,gamemode=!spectator] run function gun:kits/armor_self
 execute as @a[tag=Blue,gamemode=!creative,gamemode=!spectator] run function gun:kits/armor_self
 execute as @a[tag=Red,tag=marksman,gamemode=!creative,gamemode=!spectator] run function gun:kits/single/marksman
@@ -51,6 +51,8 @@ execute as @a[tag=Red,tag=sentry,gamemode=!creative,gamemode=!spectator] run fun
 execute as @a[tag=Blue,tag=sentry,gamemode=!creative,gamemode=!spectator] run function gun:kits/single/sentry
 execute as @a[tag=Red,tag=covert,gamemode=!creative,gamemode=!spectator] run function gun:kits/single/covert
 execute as @a[tag=Blue,tag=covert,gamemode=!creative,gamemode=!spectator] run function gun:kits/single/covert
+execute as @a[tag=Red,tag=gunslinger,gamemode=!creative,gamemode=!spectator] run function gun:kits/single/gunslinger
+execute as @a[tag=Blue,tag=gunslinger,gamemode=!creative,gamemode=!spectator] run function gun:kits/single/gunslinger
 effect give @a[tag=Red,gamemode=!creative,gamemode=!spectator] minecraft:regeneration 5 255 true
 effect give @a[tag=Blue,gamemode=!creative,gamemode=!spectator] minecraft:regeneration 5 255 true
 execute as @a[tag=Red,gamemode=!creative,gamemode=!spectator] run function gun:rations/give_random_self

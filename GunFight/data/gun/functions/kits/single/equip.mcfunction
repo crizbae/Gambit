@@ -7,3 +7,4 @@ function gun:kits/single/ranger
 function gun:kits/single/burst
 function gun:kits/single/sentry
 function gun:kits/single/covert
+function gun:kits/single/gunslinger

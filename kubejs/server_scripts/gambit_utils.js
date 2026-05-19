@@ -52,8 +52,13 @@ function applyDeathmatchGlow(server) {
 }
 
 BlockEvents.rightClicked(function (event) {
-  if (!containerLocked) return;
   var id = event.block.id;
+  // Always block bed interaction so players can't set spawn via beds used as decoration.
+  if (id.indexOf('_bed') !== -1) {
+    event.cancel();
+    return;
+  }
+  if (!containerLocked) return;
   if (id === 'minecraft:chest'
       || id === 'minecraft:trapped_chest'
       || id === 'minecraft:barrel'
@@ -178,7 +183,7 @@ ServerEvents.loaded(function(event) {
   event.server.runCommandSilent('gamerule showDeathMessages false');
   event.server.runCommandSilent('gamerule announceAdvancements false');
   event.server.runCommandSilent('gamerule doDaylightCycle false');
-  event.server.runCommandSilent('time set 18000');
+  event.server.runCommandSilent('time set 13200');
   event.server.runCommandSilent('gamerule doWeatherCycle false');
   event.server.runCommandSilent('weather clear');
 });
@@ -310,9 +315,9 @@ ServerEvents.commandRegistry(function(event) {
       .requires(function(src) { return src.hasPermission(2); })
       .executes(function(ctx) {
         var server = ctx.source.server;
-        server.runCommandSilent('yawp global remove flag item-drop');
         entityFrameLocked = false;
         containerLocked = false;
+        try { server.runCommandSilent('yawp global remove flag item-drop'); } catch (e) {}
         server.runCommandSilent('gamerule reducedDebugInfo false');
         if (ctx.source.player) {
           ctx.source.player.tell('§6[Gambit Dev] §eItem-drop enabled, trapdoors/containers unlocked, debug info visible.');

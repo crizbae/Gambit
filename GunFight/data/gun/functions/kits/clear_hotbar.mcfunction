@@ -1,5 +1,7 @@
-execute unless data entity @s Inventory[{Slot:3b,tag:{GambitVote:1b}}] unless data entity @s Inventory[{Slot:3b,tag:{GambitVote:2b}}] unless data entity @s Inventory[{Slot:3b,tag:{GambitVote:3b}}] unless data entity @s Inventory[{Slot:3b,tag:{GambitVote:4b}}] run item replace entity @s hotbar.3 with minecraft:air
-execute unless data entity @s Inventory[{Slot:4b,tag:{GambitVote:1b}}] unless data entity @s Inventory[{Slot:4b,tag:{GambitVote:2b}}] unless data entity @s Inventory[{Slot:4b,tag:{GambitVote:3b}}] unless data entity @s Inventory[{Slot:4b,tag:{GambitVote:4b}}] run item replace entity @s hotbar.4 with minecraft:air
-execute unless data entity @s Inventory[{Slot:5b,tag:{GambitVote:1b}}] unless data entity @s Inventory[{Slot:5b,tag:{GambitVote:2b}}] unless data entity @s Inventory[{Slot:5b,tag:{GambitVote:3b}}] unless data entity @s Inventory[{Slot:5b,tag:{GambitVote:4b}}] run item replace entity @s hotbar.5 with minecraft:air
-execute unless data entity @s Inventory[{Slot:6b,tag:{GambitVote:1b}}] unless data entity @s Inventory[{Slot:6b,tag:{GambitVote:2b}}] unless data entity @s Inventory[{Slot:6b,tag:{GambitVote:3b}}] unless data entity @s Inventory[{Slot:6b,tag:{GambitVote:4b}}] run item replace entity @s hotbar.6 with minecraft:air
+clear @s
+execute if entity @s[tag=gun_in_match] run function gun:kits/armor_self
+execute unless entity @s[tag=gun_in_match] if entity @s[team=red] run function gun:kits/armor_self
+execute unless entity @s[tag=gun_in_match] if entity @s[team=blue] run function gun:kits/armor_self
+execute unless entity @s[tag=gun_in_match] unless entity @s[team=red] unless entity @s[team=blue] run function gun:lobby/give_guide
+execute unless entity @s[tag=gun_in_match] unless entity @s[team=red] unless entity @s[team=blue] run gambit_restore_vote_paper
 

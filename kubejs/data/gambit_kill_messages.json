@@ -24,5 +24,12 @@
     " was executed.",
     " bled out.",
     " met their end."
+  ],
+  "first_blood": [
+    " drew first blood on ",
+    " opened the match against ",
+    " kicked things off against ",
+    " made the first move on ",
+    " started us off against "
   ]
 }
