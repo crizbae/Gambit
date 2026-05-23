@@ -1,0 +1,4 @@
+kill @e[type=minecraft:armor_stand,x=35,y=101,z=4,dx=4,dy=7,dz=4]
+summon armor_stand 36.95 102.559 6.1 {Pose:{Head:[321f,0f,0f],Body:[351f,0f,0f],LeftArm:[215f,0f,0f],RightArm:[220f,0f,0f],LeftLeg:[8f,0f,0f],RightLeg:[18f,0f,0f]},ShowArms:1b,NoBasePlate:1b,Marker:1b,Invulnerable:1b,NoGravity:1b,ArmorItems:[{id:"marbledsarsenal:desert_military_armor_boots",Count:1},{id:"marbledsarsenal:desert_military_armor_leggings",Count:1},{id:"marbledsarsenal:desert_military_armor_chestplate",Count:1},{id:"minecraft:player_head",Count:1b,tag:{SkullOwner:"crizbae"}}]}
+summon armor_stand 36.95 102.559 6.1 {Pose:{Head:[321f,0f,0f],Body:[351f,0f,0f],LeftArm:[215f,0f,0f],RightArm:[220f,0f,0f],LeftLeg:[8f,0f,0f],RightLeg:[18f,0f,0f]},ShowArms:1b,NoBasePlate:1b,CustomName:'["crizbae"]',CustomNameVisible:1b,Invisible:1b,Invulnerable:1b,NoGravity:1b}
+schedule function gun:mannequin/idle_a 60t

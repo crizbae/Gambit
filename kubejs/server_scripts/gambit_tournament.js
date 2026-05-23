@@ -57,6 +57,16 @@ function _rosterRemove(roster, name) {
   return out;
 }
 
+function _getOnlineRosterNames(server, roster) {
+  var out = [];
+  if (!server || !roster) return out;
+  for (var i = 0; i < roster.length; i++) {
+    var name = roster[i];
+    if (getOnlinePlayerByName(server, name)) out.push(name);
+  }
+  return out;
+}
+
 function _printStatus(player) {
   var redList  = tournamentRedRoster.length  === 0 ? '§8(empty)' : tournamentRedRoster.join(', ');
   var blueList = tournamentBlueRoster.length === 0 ? '§8(empty)' : tournamentBlueRoster.join(', ');
@@ -72,9 +82,11 @@ function _printStatus(player) {
 // Must mirror everything randomize does so that the rest of
 // _executeStart (TPs, starts/general, pleft) works unchanged.
 function _applyTournamentRosters(server) {
-  if (tournamentRedRoster.length === 0 || tournamentBlueRoster.length === 0) {
+  var onlineRedRoster = _getOnlineRosterNames(server, tournamentRedRoster);
+  var onlineBlueRoster = _getOnlineRosterNames(server, tournamentBlueRoster);
+  if (onlineRedRoster.length === 0 || onlineBlueRoster.length === 0) {
     server.runCommandSilent(
-      'tellraw @a ["",{"text":"[Tournament] ","color":"gold"},{"text":"Both rosters must have at least one player — aborting. Use /tournament red and /tournament blue to assign players.","color":"red"}]'
+      'tellraw @a ["",{"text":"[Tournament] ","color":"gold"},{"text":"Both rosters must have at least one online player - aborting. Use /tournament status to check rosters.","color":"red"}]'
     );
     return;
   }
@@ -84,23 +96,23 @@ function _applyTournamentRosters(server) {
   server.runCommandSilent('tag @a remove Blue');
 
   // Apply Red roster
-  for (var ri = 0; ri < tournamentRedRoster.length; ri++) {
-    var rp = tournamentRedRoster[ri];
+  for (var ri = 0; ri < onlineRedRoster.length; ri++) {
+    var rp = onlineRedRoster[ri];
     // Clear gun_optout only for active participants so they enter the match correctly.
     server.runCommandSilent('tag ' + rp + ' remove gun_optout');
     server.runCommandSilent('tag ' + rp + ' add Red');
   }
 
   // Apply Blue roster
-  for (var bi = 0; bi < tournamentBlueRoster.length; bi++) {
-    var bp = tournamentBlueRoster[bi];
+  for (var bi = 0; bi < onlineBlueRoster.length; bi++) {
+    var bp = onlineBlueRoster[bi];
     server.runCommandSilent('tag ' + bp + ' remove gun_optout');
     server.runCommandSilent('tag ' + bp + ' add Blue');
   }
 
   // Announce rosters
-  var redNames  = tournamentRedRoster.length  > 0 ? tournamentRedRoster.join(', ')  : '(none)';
-  var blueNames = tournamentBlueRoster.length > 0 ? tournamentBlueRoster.join(', ') : '(none)';
+  var redNames  = onlineRedRoster.length  > 0 ? onlineRedRoster.join(', ')  : '(none)';
+  var blueNames = onlineBlueRoster.length > 0 ? onlineBlueRoster.join(', ') : '(none)';
   server.runCommandSilent(
     'tellraw @a ["",{"text":"[Tournament] ","color":"gold"},{"text":"Red: ","color":"dark_red"},{"text":"' + redNames + '","color":"white"}]'
   );
@@ -240,8 +252,8 @@ ServerEvents.commandRegistry(function(event) {
         tournamentBlueRoster = [];
         _syncTournamentMode(ctx.source.server);
         // Remove forced gun_optout from everyone so players don't need to /play manually.
-        // Players who voluntarily spectated before the tournament will also be cleared,
-        // but that is acceptable — they can /spectate again if needed.
+        // Players who voluntarily sat out before the tournament will also be cleared,
+        // but that is acceptable - they can /sit again if needed.
         ctx.source.server.runCommandSilent('tag @a remove gun_optout');
         ctx.source.server.runCommandSilent('execute as @a[gamemode=spectator,tag=!gun_optout] in minecraft:overworld run tp @s 0 101 0');
         ctx.source.server.runCommandSilent('gamemode adventure @a[gamemode=spectator,tag=!gun_optout]');

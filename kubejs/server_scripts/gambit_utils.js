@@ -1,7 +1,7 @@
 // ============================================================
 // Gambit Utility Commands
 //
-//   /spectate      - Opt out of queue immediately.
+//   /sit           - Opt out of queue immediately.
 //                    If currently in a match, switch to spectator and teleport
 //                    to the active map observer view. Otherwise stay adventure
 //                    and spectate automatically at match start.
@@ -53,8 +53,9 @@ function applyDeathmatchGlow(server) {
 
 BlockEvents.rightClicked(function (event) {
   var id = event.block.id;
-  // Always block bed interaction so players can't set spawn via beds used as decoration.
-  if (id.indexOf('_bed') !== -1) {
+  // Block bed interaction so players can't set spawn via beds used as decoration.
+  // Skipped in dev mode (containerLocked = false) so builders can interact normally.
+  if (containerLocked && id.indexOf('_bed') !== -1) {
     event.cancel();
     return;
   }
@@ -121,7 +122,7 @@ function tellQueueStatus(player) {
   }
 
   player.tell('§a[Gambit Queue] You are in the match queue.');
-  player.tell('§7Use §f/spectate §7to opt out.');
+  player.tell('§7Use §f/sit §7to opt out.');
 }
 
 ServerEvents.loaded(function(event) {
@@ -213,7 +214,7 @@ ServerEvents.tick(function(event) {
 ServerEvents.commandRegistry(function(event) {
   var Commands = event.commands;
 
-  // Gambit's queue opt-out command (alias for vanilla /spectate)
+  // Gambit's queue opt-out command.
   event.register(
     Commands.literal('sit')
       .requires(function(src) { return src.hasPermission(0); })

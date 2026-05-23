@@ -1,5 +1,6 @@
 clear @s
 gamemode adventure @s
+data modify entity @s FoodSaturationLevel set value 20.0f
 function gun:death/loadout_self
 execute if score #mode mode_respawns matches 1 run title @s actionbar [{"text":"Objective: First to ","color":"gold"},{"score":{"name":"#target","objective":"tdm_kill_target"},"color":"aqua"},{"text":" kills","color":"gold"}]
 

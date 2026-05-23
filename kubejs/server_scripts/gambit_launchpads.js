@@ -24,7 +24,10 @@ PlayerEvents.tick(function(event) {
   if (!name) return;
 
   var now = Date.now();
-  if (launchCooldowns[name] && now < launchCooldowns[name]) return;
+  if (launchCooldowns[name]) {
+    if (now < launchCooldowns[name]) return;
+    delete launchCooldowns[name]; // prune expired entry
+  }
 
   try {
     var pos = player.blockPosition();
@@ -43,6 +46,5 @@ PlayerEvents.tick(function(event) {
   player.setDeltaMovement(new Vec3(vx, LAUNCH_VERTICAL, vz));
   player.hurtMarked = true;
   launchCooldowns[name] = now + LAUNCH_COOLDOWN_MS;
-  console.log('[LaunchPad] launched ' + name + ' vx=' + vx.toFixed(2) + ' vz=' + vz.toFixed(2));
 });
 

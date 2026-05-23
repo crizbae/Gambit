@@ -1,5 +1,7 @@
 effect clear @a[tag=Red,gamemode=!creative,gamemode=!spectator]
 effect clear @a[tag=Blue,gamemode=!creative,gamemode=!spectator]
+execute as @a[tag=Red,gamemode=!creative,gamemode=!spectator] run data modify entity @s FoodSaturationLevel set value 20.0f
+execute as @a[tag=Blue,gamemode=!creative,gamemode=!spectator] run data modify entity @s FoodSaturationLevel set value 20.0f
 clear @a[tag=Red,gamemode=!creative,gamemode=!spectator]
 clear @a[tag=Blue,gamemode=!creative,gamemode=!spectator]
 tag @a[tag=Red,gamemode=!creative,gamemode=!spectator] remove gun_in_lobby

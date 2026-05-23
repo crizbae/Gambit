@@ -1,4 +1,5 @@
 effect clear @a[gamemode=!creative,gamemode=!spectator,tag=!gun_optout]
+execute as @a[gamemode=!creative,gamemode=!spectator,tag=!gun_optout] run data modify entity @s FoodSaturationLevel set value 20.0f
 clear @a[gamemode=!creative,gamemode=!spectator,tag=!gun_optout]
 tag @a[gamemode=!creative,gamemode=!spectator] remove gun_in_lobby
 yawp global add flag item-drop Denied

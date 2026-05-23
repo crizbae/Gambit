@@ -227,36 +227,43 @@ function getPlayerId(player) {
   return name ? String(name) : null;
 }
 
-function rememberRecentAttacker(victim, attacker) {
+function rememberRecentAttacker(victim, attacker, weaponName, killerX, killerZ) {
   var victimId     = getPlayerId(victim);
   var attackerName = attacker && attacker.name && attacker.name.string ? attacker.name.string : null;
   if (!victimId || !attackerName) return;
   var entry = recentPlayerAttackers[victimId];
   if (!entry || !entry.all) { entry = { last: attackerName, all: {} }; recentPlayerAttackers[victimId] = entry; }
   entry.last = attackerName;
-  entry.all[attackerName] = Date.now() + LAST_TACZ_ATTACK_TTL_MS;
+  entry.all[attackerName] = { expires: Date.now() + LAST_TACZ_ATTACK_TTL_MS, weapon: weaponName || null, x: killerX || 0, z: killerZ || 0 };
 }
 
-// Returns { killerName, assistNames[] } — killerName is the last attacker within the TTL window.
+// Returns { killerName, assistNames[], weapon, killerX, killerZ } — killerName is the last attacker within the TTL window.
 function consumeRecentAttackInfo(victim) {
   var victimId = getPlayerId(victim);
-  if (!victimId) return { killerName: null, assistNames: [] };
+  if (!victimId) return { killerName: null, assistNames: [], weapon: null, killerX: null, killerZ: null };
   var entry = recentPlayerAttackers[victimId];
   delete recentPlayerAttackers[victimId];
-  if (!entry) return { killerName: null, assistNames: [] };
+  if (!entry) return { killerName: null, assistNames: [], weapon: null, killerX: null, killerZ: null };
   var now        = Date.now();
   var killerName = entry.last || null;
   var assistNames = [];
-  if (!entry.all) return { killerName: killerName, assistNames: [] };
+  if (!entry.all) return { killerName: killerName, assistNames: [], weapon: null, killerX: null, killerZ: null };
   // Verify killer entry hasn't expired
-  if (killerName && entry.all[killerName] && now > entry.all[killerName]) killerName = null;
+  if (killerName && entry.all[killerName] && now > entry.all[killerName].expires) killerName = null;
+  var killerData = killerName ? entry.all[killerName] : null;
   var names = Object.keys(entry.all);
   for (var i = 0; i < names.length; i++) {
     var n = names[i];
     if (n === killerName) continue;
-    if (now <= entry.all[n]) assistNames.push(n);
+    if (now <= entry.all[n].expires) assistNames.push(n);
   }
-  return { killerName: killerName, assistNames: assistNames };
+  return {
+    killerName: killerName,
+    assistNames: assistNames,
+    weapon: killerData ? killerData.weapon : null,
+    killerX: killerData ? killerData.x : null,
+    killerZ: killerData ? killerData.z : null
+  };
 }
 
 function cleanupExpiredAttackerCache() {
@@ -268,7 +275,7 @@ function cleanupExpiredAttackerCache() {
     if (!entry || !entry.all) { delete recentPlayerAttackers[vid]; continue; }
     var names = Object.keys(entry.all);
     for (var j = 0; j < names.length; j++) {
-      if (now > entry.all[names[j]]) delete entry.all[names[j]];
+      if (now > entry.all[names[j]].expires) delete entry.all[names[j]];
     }
     if (Object.keys(entry.all).length === 0) delete recentPlayerAttackers[vid];
   }
@@ -547,6 +554,9 @@ ServerEvents.tick(function(event) {
             if (_now >= recentlyDowned[_rdName]) { delete recentlyDowned[_rdName]; continue; }
             var _downedP = getOnlinePlayerByName(event.server, _rdName);
             if (!_downedP) continue;
+            var _sameTeamRevive = (hasTagSafe(p, 'Red') && hasTagSafe(_downedP, 'Red'))
+                               || (hasTagSafe(p, 'Blue') && hasTagSafe(_downedP, 'Blue'));
+            if (!_sameTeamRevive || _rdName === pName) continue;
             var _dx = _downedP.x - p.x;
             var _dy = _downedP.y - p.y;
             var _dz = _downedP.z - p.z;
@@ -659,8 +669,33 @@ EntityEvents.hurt(function(event) {
         var _enemyTeam = (hasTagSafe(entity, 'Red') && hasTagSafe(shooter, 'Blue'))
                       || (hasTagSafe(entity, 'Blue') && hasTagSafe(shooter, 'Red'))
                       || (!hasTagSafe(entity, 'Red') && !hasTagSafe(entity, 'Blue'));
-        if (_enemyTeam) rememberRecentAttacker(entity, shooter);
+        if (_enemyTeam) {
+          var _weaponName = null;
+          try {
+            var _gun = shooter.mainHandItem;
+            if (_gun && _gun.displayName) _weaponName = String(_gun.displayName.string).replace(/§[0-9a-fk-orA-FK-OR]/g, '');
+          } catch (_we) {}
+          rememberRecentAttacker(entity, shooter, _weaponName, shooter.x, shooter.z);
+        }
       }
+    }
+  }
+
+  // ── Non-TACZ player melee (fist / non-gun weapons) attacker tracking ─────
+  // Covers default punch damage and any non-TACZ item that isn't the iron sword
+  // finisher, so kill credit is still awarded when a player punches an enemy to death.
+  if (!isTaczBullet && _fAttacker && entity && entity.player && _hurtMatchActive) {
+    var _mCross = (hasTagSafe(entity, 'Red') && hasTagSafe(_fAttacker, 'Blue'))
+               || (hasTagSafe(entity, 'Blue') && hasTagSafe(_fAttacker, 'Red'));
+    if (_mCross) {
+      var _mWeaponName = null;
+      try {
+        var _mItem = _fAttacker.mainHandItem;
+        if (_mItem && !_mItem.isEmpty() && _mItem.displayName) {
+          _mWeaponName = String(_mItem.displayName.string).replace(/§[0-9a-fk-orA-FK-OR]/g, '');
+        }
+      } catch (_mwe) {}
+      rememberRecentAttacker(entity, _fAttacker, _mWeaponName, _fAttacker.x, _fAttacker.z);
     }
   }
 
@@ -799,9 +834,11 @@ EntityEvents.death(function(event) {
     if (typeof statsTrackingEnabled === 'undefined' || statsTrackingEnabled) saveEntryToPlayer(dead);
   }
 
-  // Finisher execution has priority — direct kill attribution
-  if ((!killerName || killerName === deadName) && executionKillerNames[deadName]) {
-    killerName = executionKillerNames[deadName] || null;
+  // Finisher execution has priority — direct kill attribution.
+  // Overrides the TACZ attacker cache so the sword finisher always gets credit,
+  // even when a teammate downed the enemy within the 15s attacker-cache TTL.
+  if (executionKillerNames[deadName]) {
+    killerName = executionKillerNames[deadName];
   }
   // Bleed-out fallback: attacker cache may have expired (bleed timer is 60s, cache TTL is 15s)
   if ((!killerName || killerName === deadName) && isBleedOut) {
@@ -827,6 +864,40 @@ EntityEvents.death(function(event) {
   delete downerNames[deadName];
   var firstDowner = firstDownerNames[deadName];
   delete firstDownerNames[deadName];
+
+  // ── Death screen title for the victim ────────────────────
+  if (killerName && killerName !== deadName) {
+    var _killerPlayer = getOnlinePlayerByName(event.server, killerName);
+    var _kTeamColor = _killerPlayer
+      ? (hasTagSafe(_killerPlayer, 'Red') ? 'red' : (hasTagSafe(_killerPlayer, 'Blue') ? 'aqua' : 'white'))
+      : 'white';
+    var _safeKiller = killerName.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+    var _titleJson = '["",' +
+      '{"text":"Killed by ","color":"white"},' +
+      '{"text":"' + _safeKiller + '","color":"' + _kTeamColor + '","bold":true}]';
+    // Only use cached weapon/position when the final killer is the same player who was
+    // tracked in the attacker cache (i.e. not a sword finisher or other execution override).
+    // If they differ, use the live killer position for distance and omit the wrong weapon.
+    var _killerMatchesCache = killerName === _attackInfo.killerName;
+    var _weapon = _killerMatchesCache && _attackInfo.weapon
+      ? _attackInfo.weapon.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+      : null;
+    var _titleKillerX = _killerMatchesCache ? _attackInfo.killerX : (_killerPlayer ? _killerPlayer.x : null);
+    var _titleKillerZ = _killerMatchesCache ? _attackInfo.killerZ : (_killerPlayer ? _killerPlayer.z : null);
+    var _distStr = null;
+    if (_titleKillerX !== null && _titleKillerZ !== null) {
+      var _dx = _titleKillerX - dead.x;
+      var _dz = _titleKillerZ - dead.z;
+      _distStr = Math.round(Math.sqrt(_dx * _dx + _dz * _dz)) + 'm';
+    }
+    var _subtitleParts = [];
+    if (_weapon)  _subtitleParts.push('{"text":"' + _weapon + '","color":"gray"}');
+    if (_distStr) _subtitleParts.push('{"text":"' + (_weapon ? '  \\u00b7  ' : '') + _distStr + '","color":"dark_gray"}')
+    var _subtitleJson = _subtitleParts.length > 0 ? ('["",' + _subtitleParts.join(',') + ']') : null;
+    event.server.runCommandSilent('title ' + deadName + ' times 5 60 15');
+    event.server.runCommandSilent('title ' + deadName + ' title ' + _titleJson);
+    if (_subtitleJson) event.server.runCommandSilent('title ' + deadName + ' subtitle ' + _subtitleJson);
+  }
 
   if (!killerName || killerName === deadName) return;
   if (!(typeof matchActive === 'undefined' || matchActive)) return;

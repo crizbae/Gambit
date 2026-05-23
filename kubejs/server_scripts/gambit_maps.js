@@ -653,9 +653,11 @@ function _executeStart(server) {
     // would not stop the rest of _executeStart from running (countdown, death/loop, etc.).
     var tRed  = typeof tournamentRedRoster  !== 'undefined' ? tournamentRedRoster  : [];
     var tBlue = typeof tournamentBlueRoster !== 'undefined' ? tournamentBlueRoster : [];
-    if (tRed.length === 0 || tBlue.length === 0) {
+    var tOnlineRed = typeof _getOnlineRosterNames === 'function' ? _getOnlineRosterNames(server, tRed) : tRed;
+    var tOnlineBlue = typeof _getOnlineRosterNames === 'function' ? _getOnlineRosterNames(server, tBlue) : tBlue;
+    if (tOnlineRed.length === 0 || tOnlineBlue.length === 0) {
       server.runCommandSilent(
-        'tellraw @a ["",{"text":"[Tournament] ","color":"gold"},{"text":"Cannot start — both rosters must have at least one player. Use /tournament red and /tournament blue.","color":"red"}]'
+        'tellraw @a ["",{"text":"[Tournament] ","color":"gold"},{"text":"Cannot start - both rosters must have at least one online player. Use /tournament status to check rosters.","color":"red"}]'
       );
       // Roll back state set above so a subsequent /start works cleanly.
       matchActive     = false;
@@ -677,7 +679,12 @@ function _executeStart(server) {
   server.runCommandSilent('execute in minecraft:overworld run tp @a[tag=Blue,gamemode=!spectator,gamemode=!creative] ' + blueCoords);
 
   if (isTdm) {
-    var _tdmPlayerCount = server.players ? server.players.size() : 0;
+    var _tdmPlayerCount = 0;
+    if (server.players) {
+      server.players.forEach(function(p) {
+        if (!p.isCreative() && !p.isSpectator() && (hasTagSafe(p, 'Red') || hasTagSafe(p, 'Blue'))) _tdmPlayerCount += 1;
+      });
+    }
     var _tdmTarget = Math.max(10, _tdmPlayerCount * 2);
     server.runCommandSilent('scoreboard players set #target tdm_kill_target ' + _tdmTarget);
     server.runCommandSilent('function gun:tdm/init');
@@ -945,6 +952,7 @@ ServerEvents.commandRegistry(function (event) {
         matchStartTime = 0;
         matchActive = false;
         firstBloodDone = false; // belt-and-suspenders reset (also done in gambit_reset_downs)
+        deathmatchGlowEnabled = false;
         autostartTicksLeft = 0;
         autostartLastSecondsLeft = -1;
         // Don't start a vote in tournament mode — OP controls map selection there.

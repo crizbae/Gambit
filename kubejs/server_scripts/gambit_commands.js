@@ -203,7 +203,7 @@ function _giveGuideBook(player) {
       { text: 'COMMANDS\n\n', color: 'dark_blue', bold: true },
       { text: '/play\n', color: 'dark_green' },
       { text: 'Queue for a match.\n\n', color: 'black' },
-      { text: '/spectate\n', color: 'dark_green' },
+      { text: '/sit\n', color: 'dark_green' },
       { text: 'Watch without playing.\n\n', color: 'black' },
       { text: '/queue\n', color: 'dark_green' },
       { text: 'Check your status.\n\n', color: 'black' },

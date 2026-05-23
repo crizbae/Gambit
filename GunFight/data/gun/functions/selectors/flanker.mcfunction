@@ -7,3 +7,4 @@ execute if entity @s[team=red] run function gun:kits/single/flanker
 execute if entity @s[team=blue] run function gun:kits/single/flanker
 execute if entity @s[team=red] run function gun:rations/give_random_self
 execute if entity @s[team=blue] run function gun:rations/give_random_self
+execute if entity @s[tag=in_range] run function gun:range/equip

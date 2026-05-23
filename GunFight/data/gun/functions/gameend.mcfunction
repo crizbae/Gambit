@@ -10,7 +10,7 @@ scoreboard players set @a tdm_respawn_timer 0
 tp @a[tag=Red] 0 101 0
 tp @a[tag=Blue] 0 101 0
 gamerule doImmediateRespawn false
-# Convert tournament spectators back to adventure mode and return to spawn
+# Convert spectators back to adventure mode and return to spawn
 tag @a[gamemode=spectator] add spectator_returning
 gamemode adventure @a[tag=spectator_returning]
 execute as @a[tag=spectator_returning] run execute in minecraft:overworld run tp @s 0 101 0
