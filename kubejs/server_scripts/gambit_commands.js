@@ -154,9 +154,8 @@ function showSessionLeaderboard(player, mode) {
 }
 
 // ── Guide book builder ──────────────────────────────────────────────────────
-// Global so it can be called from PlayerEvents.loggedIn in gambit_tracker.js
-// as well as from the gambit_give_guide command.
-function _giveGuideBook(player) {
+// Legacy guide builder kept for reference; the active versioned builder is below.
+function _giveGuideBookLegacy(player) {
   if (!player || !player.give) return;
 
   // Build an SNBT single-quoted page string from a JS component array.
@@ -227,6 +226,167 @@ function _giveGuideBook(player) {
   var nbt = '{title:"Gambit Field Manual",author:"Gambit Command",pages:[' + pages.join(',') + '],display:{Name:\'' + displayName + '\'}}';
   player.give(Item.of('minecraft:written_book', nbt));
 }
+
+// Current guide builder. Kept separate from the legacy block above so players
+// with old manuals receive this compact, versioned book.
+function _giveGuideBook(player) {
+  if (!player || !player.give) return;
+
+  function page(components) {
+    var json = JSON.stringify(components)
+      .replace(/\\/g, '\\\\')
+      .replace(/'/g, "\\'");
+    return "'" + json + "'";
+  }
+
+  var pages = [
+    page([
+      { text: 'GAMBIT\n', color: 'dark_blue', bold: true },
+      { text: 'Commands\n\n', color: 'dark_gray' },
+      { text: '/queue\n', color: 'dark_green' },
+      { text: 'Check if you are in.\n\n', color: 'black' },
+      { text: '/play\n', color: 'dark_green' },
+      { text: 'Join next match.\n\n', color: 'black' },
+      { text: '/sit\n', color: 'dark_green' },
+      { text: 'Sit out and watch.', color: 'black' }
+    ]),
+    page([
+      { text: 'MATCH FLOW\n\n', color: 'dark_blue', bold: true },
+      { text: 'Vote with music discs\nafter each match.\n\n', color: 'black' },
+      { text: 'Pick a kit in lobby.\n\n', color: 'black' },
+      { text: 'Teams and spawns are\nautomatic on start.', color: 'black' }
+    ]),
+    page([
+      { text: 'MODES\n\n', color: 'dark_red', bold: true },
+      { text: 'Elimination:\n', color: 'dark_red' },
+      { text: 'one life. Last team\nalive wins.\n\n', color: 'black' },
+      { text: 'TDM:\n', color: 'dark_aqua' },
+      { text: 'respawns on. First\nteam to goal wins.', color: 'black' }
+    ]),
+    page([
+      { text: 'DOWNS\n\n', color: 'dark_red', bold: true },
+      { text: 'A lethal hit may put\nyou down first.\n\n', color: 'black' },
+      { text: 'Teammates revive with\na syringe.\n\n', color: 'black' },
+      { text: 'Use the Finisher\nsword on downed foes.', color: 'black' }
+    ]),
+    page([
+      { text: 'STATS\n\n', color: 'dark_blue', bold: true },
+      { text: '/stats\n', color: 'dark_green' },
+      { text: 'Show stats help.\n\n', color: 'black' },
+      { text: '/stats session\n', color: 'dark_green' },
+      { text: 'Today only.\n\n', color: 'black' },
+      { text: '/stats global\n', color: 'dark_green' },
+      { text: 'Lifetime stats.', color: 'black' }
+    ]),
+    page([
+      { text: 'MORE STATS\n\n', color: 'dark_blue', bold: true },
+      { text: '/stats history\n', color: 'dark_green' },
+      { text: 'Recent matches.\n\n', color: 'black' },
+      { text: '/stats top <metric>\n', color: 'dark_green' },
+      { text: 'Top players.\n\n', color: 'black' },
+      { text: 'Add a player name to\nsession, global, or\nhistory to inspect.', color: 'black' }
+    ]),
+    page([
+      { text: 'LEADERBOARDS\n\n', color: 'dark_blue', bold: true },
+      { text: '/stats elim\n', color: 'dark_green' },
+      { text: '/stats tdm\n', color: 'dark_green' },
+      { text: '/stats combined\n\n', color: 'dark_green' },
+      { text: 'Add global or session.\n\n', color: 'black' },
+      { text: 'Metrics: kd, kills,\ndamage, wins, assists,\nstreak, revives.', color: 'black' }
+    ]),
+    page([
+      { text: 'VOTING\n\n', color: 'dark_blue', bold: true },
+      { text: 'Use the vote discs.\n\n', color: 'black' },
+      { text: 'Fallback commands:\n', color: 'black' },
+      { text: '/gambitvote 1\n', color: 'dark_green' },
+      { text: '/gambitvote 2\n', color: 'dark_green' },
+      { text: '/gambitvote 3\n', color: 'dark_green' },
+      { text: '/gambitvote 4\n\n', color: 'dark_green' },
+      { text: '4 means random map.', color: 'black' }
+    ]),
+    page([
+      { text: 'OP MATCH\n\n', color: 'dark_red', bold: true },
+      { text: '/setmap <map>\n', color: 'dark_green' },
+      { text: '/start\n', color: 'dark_green' },
+      { text: '/setgoal <kills>\n', color: 'dark_green' },
+      { text: '/gambitvote start\n', color: 'dark_green' },
+      { text: '/gambitvote stop\n', color: 'dark_green' },
+      { text: '/gambitvote enable\n', color: 'dark_green' },
+      { text: '/gambitvote disable', color: 'dark_green' }
+    ]),
+    page([
+      { text: 'OP TOURNEY\n\n', color: 'dark_red', bold: true },
+      { text: '/tournament on|off\n', color: 'dark_green' },
+      { text: '/tournament status\n', color: 'dark_green' },
+      { text: '/tournament red <p>\n', color: 'dark_green' },
+      { text: '/tournament blue <p>\n', color: 'dark_green' },
+      { text: '/tournament remove <p>\n', color: 'dark_green' },
+      { text: '/tournament clear|swap', color: 'dark_green' }
+    ]),
+    page([
+      { text: 'OP ADMIN\n\n', color: 'dark_red', bold: true },
+      { text: '/gambitboard\n', color: 'dark_green' },
+      { text: 'Place stat boards.\n\n', color: 'black' },
+      { text: '/stats admin\n', color: 'dark_green' },
+      { text: 'Reset or pause stats.\n\n', color: 'black' },
+      { text: '/gambitdb status\n', color: 'dark_green' },
+      { text: 'Check database.', color: 'black' }
+    ]),
+    page([
+      { text: 'OP TOOLS\n\n', color: 'dark_red', bold: true },
+      { text: '/deathmatch\n', color: 'dark_green' },
+      { text: 'Glow alive players.\n\n', color: 'black' },
+      { text: '/devmode\n', color: 'dark_green' },
+      { text: 'Unlock build tools.\n\n', color: 'black' },
+      { text: '/lockserver\n', color: 'dark_green' },
+      { text: 'Restore locks.', color: 'black' }
+    ])
+  ];
+
+  var playerName = getPlayerName(player);
+  if (playerName && player.server) {
+    player.server.runCommandSilent('clear ' + playerName + ' minecraft:written_book{title:"Gambit Field Manual"}');
+  }
+
+  var displayName = '{"text":"Gambit Field Manual","color":"gold","italic":false,"bold":true}';
+  var nbt = '{title:"Gambit Field Manual",author:"Gambit Command",GambitGuideVersion:2,pages:[' + pages.join(',') + '],display:{Name:\'' + displayName + '\'}}';
+  player.give(Item.of('minecraft:written_book', nbt));
+}
+
+var guideBookTicker = 0;
+
+function _hasCurrentGuideBook(player) {
+  if (!player) return false;
+  try {
+    var inv = player.inventory;
+    var size = inv && inv.getContainerSize ? inv.getContainerSize() : 41;
+    for (var i = 0; i < size; i++) {
+      var stack = inv.getItem(i);
+      if (!stack || stack.isEmpty() || String(stack.id) !== 'minecraft:written_book') continue;
+      var nbt = stack.nbt;
+      if (!nbt) continue;
+      try {
+        if (nbt.contains && nbt.contains('GambitGuideVersion') && nbt.getInt('GambitGuideVersion') === 2) return true;
+      } catch (_nbtIntErr) {}
+      if (String(nbt).indexOf('GambitGuideVersion:2') !== -1 || String(nbt).indexOf('GambitGuideVersion=2') !== -1) return true;
+    }
+  } catch (_guideCheckErr) {}
+  return false;
+}
+
+ServerEvents.tick(function(event) {
+  guideBookTicker += 1;
+  if (guideBookTicker < 100) return;
+  guideBookTicker = 0;
+  if (!event.server || !event.server.players) return;
+
+  event.server.players.forEach(function(player) {
+    if (!player || player.isCreative()) return;
+    if (!hasTagSafe(player, 'gun_in_lobby')) return;
+    if (_hasCurrentGuideBook(player)) return;
+    _giveGuideBook(player);
+  });
+});
 
 ServerEvents.commandRegistry(function(event) {
   var Commands = event.commands;
@@ -1168,6 +1328,7 @@ ServerEvents.commandRegistry(function(event) {
         if (!player || !player.give) {
           try {
             var entity = ctx.source.entity;
+            if (entity && entity.give) player = entity;
             var ename = entity && (entity.username || (entity.name && entity.name.string));
             if (ename) player = getOnlinePlayerByName(ctx.source.server, ename);
           } catch(e) {}

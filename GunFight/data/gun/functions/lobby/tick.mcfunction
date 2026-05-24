@@ -32,7 +32,6 @@ effect give @a[team=lobby] saturation 16 1 true
 effect give @a[team=lobby] regeneration 5 1 true
 tag @a[team=lobby] add gun_in_lobby
 tag @a[team=!lobby] remove gun_in_lobby
-execute as @a[team=lobby,gamemode=!creative,tag=!gun_optout] unless data entity @s Inventory[{id:"minecraft:written_book",tag:{title:"Gambit Field Manual"}}] run function gun:lobby/give_guide
 effect give @a[team=sumo] saturation 16 1 true
 effect give @a[team=sumo] regeneration 5 25 true
 effect give @a[team=red] speed 2 0 true

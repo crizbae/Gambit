@@ -25,11 +25,9 @@ bossbar set gun:elim_blue visible false
 scoreboard objectives setdisplay sidebar
 scoreboard players reset Red pleft_sidebar
 scoreboard players reset Blue pleft_sidebar
-scoreboard players reset §cRed pleft_sidebar
-scoreboard players reset §bBlue pleft_sidebar
 scoreboard players reset Goal pleft_sidebar
-scoreboard players set §cRed tdm_kills 0
-scoreboard players set §bBlue tdm_kills 0
+scoreboard players set Red tdm_kills 0
+scoreboard players set Blue tdm_kills 0
 scoreboard players set @a life_kills 0
 scoreboard players set @a life_dmg 0
 schedule clear gun:pleft/loop

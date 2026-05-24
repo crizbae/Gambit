@@ -14,8 +14,6 @@ scoreboard players set @a life_kills 0
 scoreboard players set @a life_dmg 0
 scoreboard players reset Red pleft_sidebar
 scoreboard players reset Blue pleft_sidebar
-scoreboard players reset §cRed pleft_sidebar
-scoreboard players reset §bBlue pleft_sidebar
 scoreboard players reset Goal pleft_sidebar
 scoreboard players reset Red tdm_kills
 scoreboard players reset Blue tdm_kills
