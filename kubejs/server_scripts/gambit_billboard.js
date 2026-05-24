@@ -150,13 +150,42 @@ function buildBillboardText(mode) {
   return '[' + components.join(',') + ']';
 }
 
+function getBillboardRotation(mode, pos) {
+  if (pos && typeof pos.yaw === 'number') {
+    var table = {
+      '0':   '0f,0f,0f,1f',
+      '45':  '0f,-0.38268f,0f,0.92388f',
+      '90':  '0f,-0.70711f,0f,0.70711f',
+      '135': '0f,-0.92388f,0f,0.38268f',
+      '180': '0f,-1f,0f,0f',
+      '225': '0f,-0.92388f,0f,-0.38268f',
+      '270': '0f,-0.70711f,0f,-0.70711f',
+      '315': '0f,-0.38268f,0f,-0.92388f'
+    };
+    var snapped = String((((Math.round(pos.yaw / 45) * 45) % 360) + 360) % 360);
+    return table[snapped] || '0f,0f,0f,1f';
+  }
+  return BILLBOARD_ROTATION[mode] || '0f,0f,0f,1f';
+}
+
+function buildBillboardEntityNbt(mode, textJson, rotation) {
+  var tag = BILLBOARD_TAGS[mode];
+  return '{Tags:["' + tag + '"],billboard:"fixed",background:0,line_width:300,transformation:{left_rotation:[' + rotation + '],right_rotation:[0f,0f,0f,1f],translation:[0f,0f,0f],scale:[1f,1f,1f]},text:\'' + textJson + '\'}';
+}
+
 function updateBillboard(server) {
   if (!server) return;
   for (var mi = 0; mi < ALL_BILLBOARD_MODES.length; mi++) {
     var m = ALL_BILLBOARD_MODES[mi];
-    if (!billboardPositions[m]) continue;
+    var pos = billboardPositions[m];
+    if (!pos) continue;
     var tag = BILLBOARD_TAGS[m];
     var textJson = buildBillboardText(m);
+    var rotation = getBillboardRotation(m, pos);
+    var nbt = buildBillboardEntityNbt(m, textJson, rotation);
+    server.runCommandSilent(
+      'execute in minecraft:overworld unless entity @e[type=minecraft:text_display,tag=' + tag + ',limit=1] run summon minecraft:text_display ' + pos.x + ' ' + pos.y + ' ' + pos.z + ' ' + nbt
+    );
     server.runCommandSilent(
       'execute in minecraft:overworld run data modify entity @e[type=minecraft:text_display,tag=' + tag + ',limit=1] text set value \'' + textJson + '\''
     );

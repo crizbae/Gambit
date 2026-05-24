@@ -974,7 +974,7 @@ ServerEvents.commandRegistry(function(event) {
     saveBillboardPositions();
     var rotation = yawToQuaternion(yawDeg);
     var textJson = buildBillboardText(mode);
-    var nbt = '{Tags:["' + tag + '"],billboard:"fixed",background:0,line_width:300,transformation:{left_rotation:[' + rotation + '],right_rotation:[0f,0f,0f,1f],translation:[0f,0f,0f],scale:[1f,1f,1f]},text:\'' + textJson + '\'}';
+    var nbt = buildBillboardEntityNbt(mode, textJson, rotation);
     player.tell('§7[dbg] yaw=' + yawDeg + ' rot=' + rotation);
     player.tell('§7[dbg] nbt[0..80]=' + nbt.substring(0, 80));
     ctx.source.server.runCommandSilent('execute as ' + playerName + ' in minecraft:overworld run summon minecraft:text_display ' + x + ' ' + y + ' ' + z + ' ' + nbt);
@@ -1007,6 +1007,9 @@ ServerEvents.commandRegistry(function(event) {
           .then(Commands.literal('combined_session').executes(function(ctx) { return setupBillboard(ctx, 'combined_session', null); }).then(Commands.argument('yaw', IntegerArgumentType.integer(0, 359)).executes(function(ctx) { return setupBillboard(ctx, 'combined_session', parseInt(IntegerArgumentType.getInteger(ctx, 'yaw'), 10)); })))
           .then(Commands.literal('elim_session').executes(function(ctx) { return setupBillboard(ctx, 'elim_session', null); }).then(Commands.argument('yaw', IntegerArgumentType.integer(0, 359)).executes(function(ctx) { return setupBillboard(ctx, 'elim_session', parseInt(IntegerArgumentType.getInteger(ctx, 'yaw'), 10)); })))
           .then(Commands.literal('tdm_session').executes(function(ctx) { return setupBillboard(ctx, 'tdm_session', null); }).then(Commands.argument('yaw', IntegerArgumentType.integer(0, 359)).executes(function(ctx) { return setupBillboard(ctx, 'tdm_session', parseInt(IntegerArgumentType.getInteger(ctx, 'yaw'), 10)); })))
+          .then(Commands.literal('session_combined').executes(function(ctx) { return setupBillboard(ctx, 'combined_session', null); }).then(Commands.argument('yaw', IntegerArgumentType.integer(0, 359)).executes(function(ctx) { return setupBillboard(ctx, 'combined_session', parseInt(IntegerArgumentType.getInteger(ctx, 'yaw'), 10)); })))
+          .then(Commands.literal('session_elim').executes(function(ctx) { return setupBillboard(ctx, 'elim_session', null); }).then(Commands.argument('yaw', IntegerArgumentType.integer(0, 359)).executes(function(ctx) { return setupBillboard(ctx, 'elim_session', parseInt(IntegerArgumentType.getInteger(ctx, 'yaw'), 10)); })))
+          .then(Commands.literal('session_tdm').executes(function(ctx) { return setupBillboard(ctx, 'tdm_session', null); }).then(Commands.argument('yaw', IntegerArgumentType.integer(0, 359)).executes(function(ctx) { return setupBillboard(ctx, 'tdm_session', parseInt(IntegerArgumentType.getInteger(ctx, 'yaw'), 10)); })))
       )
       .then(
         Commands.literal('remove')
@@ -1030,6 +1033,9 @@ ServerEvents.commandRegistry(function(event) {
           .then(Commands.literal('combined_session').executes(function(ctx) { return removeBillboard(ctx, 'combined_session'); }))
           .then(Commands.literal('elim_session').executes(function(ctx) { return removeBillboard(ctx, 'elim_session'); }))
           .then(Commands.literal('tdm_session').executes(function(ctx) { return removeBillboard(ctx, 'tdm_session'); }))
+          .then(Commands.literal('session_combined').executes(function(ctx) { return removeBillboard(ctx, 'combined_session'); }))
+          .then(Commands.literal('session_elim').executes(function(ctx) { return removeBillboard(ctx, 'elim_session'); }))
+          .then(Commands.literal('session_tdm').executes(function(ctx) { return removeBillboard(ctx, 'tdm_session'); }))
       )
       .then(
         Commands.literal('refresh')
