@@ -1,6 +1,7 @@
 // gambit_db.js — MySQL helper. Loads before other gambit_*.js scripts.
 
 var GAMBIT_DB_CONFIG_PATH = 'kubejs/data/gambit_db_config.json';
+var GAMBIT_DB_REQUIRED = true;
 
 var _gambitDb = {
   config: null,
@@ -109,6 +110,9 @@ function gambitDbLoadConfig() {
     console.warn('[Gambit DB] Could not read config: ' + e);
   }
   _gambitDb.enabled = false;
+  if (GAMBIT_DB_REQUIRED) {
+    console.error('[Gambit DB] MySQL is required for Gambit stats and analytics. Create ' + GAMBIT_DB_CONFIG_PATH + ' with enabled=true.');
+  }
   return false;
 }
 
@@ -175,6 +179,17 @@ function gambitDbGetConnection() {
 
 function gambitDbIsEnabled() {
   return _gambitDb.enabled && _gambitDb.driverLoaded;
+}
+
+function gambitDbIsRequired() {
+  return !!GAMBIT_DB_REQUIRED;
+}
+
+function gambitDbRequireReady(context) {
+  var label = context ? String(context) : 'operation';
+  if (gambitDbIsEnabled() && gambitDbGetConnection()) return true;
+  console.error('[Gambit DB] MySQL is required but unavailable for ' + label + '. Stats will use local JSON only as an emergency fallback.');
+  return false;
 }
 
 function gambitDbInitTables() {
@@ -358,9 +373,24 @@ function gambitDbInitTables() {
 
     // ── Analytics fact tables ────────────────────────────────
     stmt.executeUpdate(
+      'CREATE TABLE IF NOT EXISTS gambit_sessions ('
+      + ' session_id BIGINT AUTO_INCREMENT PRIMARY KEY,'
+      + ' label VARCHAR(64) DEFAULT NULL,'
+      + ' started_at_utc DATETIME NOT NULL,'
+      + ' ended_at_utc DATETIME DEFAULT NULL,'
+      + ' server_instance VARCHAR(64) DEFAULT NULL,'
+      + ' created_by VARCHAR(64) DEFAULT NULL,'
+      + ' created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,'
+      + ' INDEX idx_sessions_active (ended_at_utc),'
+      + ' INDEX idx_sessions_started (started_at_utc)'
+      + ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
+    );
+
+    stmt.executeUpdate(
       'CREATE TABLE IF NOT EXISTS gambit_matches ('
       + ' analytics_match_id BIGINT AUTO_INCREMENT PRIMARY KEY,'
       + ' legacy_match_id INT DEFAULT NULL,'
+      + ' session_id BIGINT DEFAULT NULL,'
       + ' map_id INT NOT NULL DEFAULT 0,'
       + ' mode_id TINYINT NOT NULL DEFAULT 0,'
       + ' winner_team VARCHAR(8) NOT NULL,'
@@ -371,6 +401,7 @@ function gambitDbInitTables() {
       + ' is_tournament TINYINT(1) NOT NULL DEFAULT 0,'
       + ' created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,'
       + ' INDEX idx_matches_started (started_at_utc),'
+      + ' INDEX idx_matches_session (session_id),'
       + ' INDEX idx_matches_map_mode (map_id, mode_id),'
       + ' INDEX idx_matches_winner (winner_team),'
       + ' INDEX idx_matches_legacy (legacy_match_id),'
@@ -402,6 +433,28 @@ function gambitDbInitTables() {
       + ' CONSTRAINT fk_mps_match FOREIGN KEY (analytics_match_id) REFERENCES gambit_matches(analytics_match_id) ON DELETE CASCADE'
       + ') ENGINE=InnoDB DEFAULT CHARSET=utf8mb4'
     );
+
+    try {
+      var _sessionColStmt = conn.createStatement();
+      _sessionColStmt.executeUpdate('ALTER TABLE gambit_matches ADD COLUMN session_id BIGINT DEFAULT NULL AFTER legacy_match_id');
+      _sessionColStmt.close();
+      console.info('[Gambit DB] Migration: added gambit_matches.session_id');
+    } catch (_sessionColErr) {
+      var _sessionColMsg = String(_sessionColErr);
+      if (_sessionColMsg.indexOf('Duplicate column') === -1 && _sessionColMsg.indexOf('1060') === -1) {
+        console.warn('[Gambit DB] Migration warning (matches.session_id): ' + _sessionColErr);
+      }
+    }
+    try {
+      var _sessionIdxStmt = conn.createStatement();
+      _sessionIdxStmt.executeUpdate('ALTER TABLE gambit_matches ADD INDEX idx_matches_session (session_id)');
+      _sessionIdxStmt.close();
+    } catch (_sessionIdxErr) {
+      var _sessionIdxMsg = String(_sessionIdxErr);
+      if (_sessionIdxMsg.indexOf('Duplicate key') === -1 && _sessionIdxMsg.indexOf('1061') === -1) {
+        console.warn('[Gambit DB] Migration warning (matches.session index): ' + _sessionIdxErr);
+      }
+    }
 
     stmt.executeUpdate(
       'CREATE TABLE IF NOT EXISTS gambit_match_votes ('
@@ -886,29 +939,218 @@ function gambitDbSyncDimensions(mapDefs, kitKeys) {
   }
 }
 
+function gambitDbGetActiveSession() {
+  var conn = gambitDbGetConnection();
+  if (!conn) return null;
+
+  try {
+    var stmt = conn.createStatement();
+    var rs = stmt.executeQuery(
+      'SELECT session_id, label, started_at_utc, ended_at_utc FROM gambit_sessions ' +
+      'WHERE ended_at_utc IS NULL ORDER BY session_id DESC LIMIT 1'
+    );
+    var session = null;
+    if (rs.next()) {
+      session = {
+        session_id: Number(rs.getLong('session_id')),
+        label: String(rs.getString('label') || ''),
+        started_at_utc: String(rs.getString('started_at_utc') || ''),
+        ended_at_utc: String(rs.getString('ended_at_utc') || '')
+      };
+    }
+    rs.close();
+    stmt.close();
+    return session;
+  } catch (e) {
+    console.error('[Gambit DB] Failed to read active session: ' + e);
+    return null;
+  }
+}
+
+function gambitDbStartSession(label, actorName) {
+  var conn = gambitDbGetConnection();
+  if (!conn) return { ok: false, error: 'Database unavailable.' };
+
+  var existing = gambitDbGetActiveSession();
+  if (existing) return { ok: false, active: existing, error: 'A session is already active.' };
+
+  try {
+    var ps = conn.prepareStatement(
+      'INSERT INTO gambit_sessions (label, started_at_utc, server_instance, created_by) VALUES (?, ?, ?, ?)'
+    );
+    var cleanLabel = label ? String(label).trim() : '';
+    if (cleanLabel.length > 64) cleanLabel = cleanLabel.substring(0, 64);
+    if (cleanLabel) ps.setString(1, cleanLabel); else ps.setObject(1, null);
+    ps.setString(2, _gambitFormatUtcDateTime(Date.now()));
+    ps.setString(3, 'default');
+    if (actorName) ps.setString(4, _gambitDbNormalizePlayerName(actorName, null)); else ps.setObject(4, null);
+    ps.executeUpdate();
+    ps.close();
+
+    var started = gambitDbGetActiveSession();
+    return { ok: true, session: started };
+  } catch (e) {
+    console.error('[Gambit DB] Failed to start session: ' + e);
+    return { ok: false, error: String(e) };
+  }
+}
+
+function gambitDbEndSession(actorName) {
+  var conn = gambitDbGetConnection();
+  if (!conn) return { ok: false, error: 'Database unavailable.' };
+
+  var active = gambitDbGetActiveSession();
+  if (!active) return { ok: false, error: 'No active session.' };
+
+  try {
+    var ps = conn.prepareStatement('UPDATE gambit_sessions SET ended_at_utc=? WHERE session_id=? AND ended_at_utc IS NULL');
+    ps.setString(1, _gambitFormatUtcDateTime(Date.now()));
+    ps.setLong(2, Number(active.session_id));
+    ps.executeUpdate();
+    ps.close();
+    return { ok: true, session: active };
+  } catch (e) {
+    console.error('[Gambit DB] Failed to end session: ' + e);
+    return { ok: false, error: String(e), session: active };
+  }
+}
+
+function gambitDbGetActiveSessionId() {
+  var active = gambitDbGetActiveSession();
+  return active ? Number(active.session_id) : null;
+}
+
+function gambitDbGetDisplaySession() {
+  var active = gambitDbGetActiveSession();
+  if (active) return active;
+
+  var conn = gambitDbGetConnection();
+  if (!conn) return null;
+  try {
+    var stmt = conn.createStatement();
+    var rs = stmt.executeQuery(
+      'SELECT session_id, label, started_at_utc, ended_at_utc FROM gambit_sessions ORDER BY session_id DESC LIMIT 1'
+    );
+    var session = null;
+    if (rs.next()) {
+      session = {
+        session_id: Number(rs.getLong('session_id')),
+        label: String(rs.getString('label') || ''),
+        started_at_utc: String(rs.getString('started_at_utc') || ''),
+        ended_at_utc: String(rs.getString('ended_at_utc') || '')
+      };
+    }
+    rs.close();
+    stmt.close();
+    return session;
+  } catch (e) {
+    console.error('[Gambit DB] Failed to read display session: ' + e);
+    return null;
+  }
+}
+
+function gambitDbGetActiveSessionEntries() {
+  var conn = gambitDbGetConnection();
+  if (!conn) return null;
+
+  var active = gambitDbGetDisplaySession();
+  if (!active) return [];
+
+  try {
+    var ps = conn.prepareStatement(
+      'SELECT ' +
+      ' COALESCE(mps.player_uuid, LOWER(mps.player_name)) AS player_key,' +
+      ' MAX(mps.player_name) AS player_name,' +
+      ' SUM(mps.kills) AS kills,' +
+      ' SUM(mps.deaths) AS deaths,' +
+      ' SUM(mps.assists) AS assists,' +
+      ' SUM(mps.damage) AS damage,' +
+      ' COUNT(*) AS matches,' +
+      ' SUM(CASE WHEN gm.winner_team = mps.team THEN 1 ELSE 0 END) AS wins,' +
+      ' SUM(mps.mvp_flag) AS mvps,' +
+      ' SUM(CASE WHEN gm.mode_id = 0 THEN mps.kills ELSE 0 END) AS elim_kills,' +
+      ' SUM(CASE WHEN gm.mode_id = 0 THEN mps.deaths ELSE 0 END) AS elim_deaths,' +
+      ' SUM(CASE WHEN gm.mode_id = 0 THEN 1 ELSE 0 END) AS elim_matches,' +
+      ' SUM(CASE WHEN gm.mode_id = 0 THEN mps.damage ELSE 0 END) AS elim_damage,' +
+      ' SUM(CASE WHEN gm.mode_id = 0 THEN mps.assists ELSE 0 END) AS elim_assists,' +
+      ' SUM(CASE WHEN gm.mode_id = 0 THEN mps.mvp_flag ELSE 0 END) AS elim_mvps,' +
+      ' SUM(CASE WHEN gm.mode_id = 1 THEN mps.kills ELSE 0 END) AS tdm_kills,' +
+      ' SUM(CASE WHEN gm.mode_id = 1 THEN mps.deaths ELSE 0 END) AS tdm_deaths,' +
+      ' SUM(CASE WHEN gm.mode_id = 1 THEN 1 ELSE 0 END) AS tdm_matches,' +
+      ' SUM(CASE WHEN gm.mode_id = 1 THEN mps.damage ELSE 0 END) AS tdm_damage,' +
+      ' SUM(CASE WHEN gm.mode_id = 1 THEN mps.assists ELSE 0 END) AS tdm_assists,' +
+      ' SUM(CASE WHEN gm.mode_id = 1 THEN mps.mvp_flag ELSE 0 END) AS tdm_mvps,' +
+      ' SUM(mps.revives) AS revives,' +
+      ' MAX(mps.longest_streak_match) AS longest_streak ' +
+      'FROM gambit_match_player_stats mps ' +
+      'JOIN gambit_matches gm ON gm.analytics_match_id = mps.analytics_match_id ' +
+      'WHERE gm.session_id = ? ' +
+      'GROUP BY COALESCE(mps.player_uuid, LOWER(mps.player_name))'
+    );
+    ps.setLong(1, Number(active.session_id));
+    var rs = ps.executeQuery();
+    var arr = [];
+    while (rs.next()) {
+      var s = {
+        date: active.started_at_utc,
+        kills: Math.floor(Number(rs.getInt('kills')) || 0),
+        deaths: Math.floor(Number(rs.getInt('deaths')) || 0),
+        damage: Number(rs.getDouble('damage')) || 0,
+        matches: Math.floor(Number(rs.getInt('matches')) || 0),
+        wins: Math.floor(Number(rs.getInt('wins')) || 0),
+        assists: Math.floor(Number(rs.getInt('assists')) || 0),
+        mvps: Math.floor(Number(rs.getInt('mvps')) || 0),
+        elim_kills: Math.floor(Number(rs.getInt('elim_kills')) || 0),
+        elim_deaths: Math.floor(Number(rs.getInt('elim_deaths')) || 0),
+        elim_matches: Math.floor(Number(rs.getInt('elim_matches')) || 0),
+        elim_damage: Number(rs.getDouble('elim_damage')) || 0,
+        elim_assists: Math.floor(Number(rs.getInt('elim_assists')) || 0),
+        elim_mvps: Math.floor(Number(rs.getInt('elim_mvps')) || 0),
+        tdm_kills: Math.floor(Number(rs.getInt('tdm_kills')) || 0),
+        tdm_deaths: Math.floor(Number(rs.getInt('tdm_deaths')) || 0),
+        tdm_matches: Math.floor(Number(rs.getInt('tdm_matches')) || 0),
+        tdm_damage: Number(rs.getDouble('tdm_damage')) || 0,
+        tdm_assists: Math.floor(Number(rs.getInt('tdm_assists')) || 0),
+        tdm_mvps: Math.floor(Number(rs.getInt('tdm_mvps')) || 0),
+        longest_streak: Math.floor(Number(rs.getInt('longest_streak')) || 0),
+        revives: Math.floor(Number(rs.getInt('revives')) || 0)
+      };
+      arr.push([String(rs.getString('player_name') || rs.getString('player_key') || 'Unknown'), s]);
+    }
+    rs.close();
+    ps.close();
+    return arr;
+  } catch (e) {
+    console.error('[Gambit DB] Failed to aggregate active session stats: ' + e);
+    return null;
+  }
+}
+
 function gambitDbInsertAnalyticsMatch(meta) {
   var conn = gambitDbGetConnection();
   if (!conn || !meta) return -1;
 
   try {
     var ps = conn.prepareStatement(
-      'INSERT INTO gambit_matches (legacy_match_id, map_id, mode_id, winner_team, started_at_utc, ended_at_utc, duration_seconds, server_instance, is_tournament)' +
-      ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
+      'INSERT INTO gambit_matches (legacy_match_id, session_id, map_id, mode_id, winner_team, started_at_utc, ended_at_utc, duration_seconds, server_instance, is_tournament)' +
+      ' VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
     );
 
     var legacyId = meta.legacy_match_id !== undefined ? Number(meta.legacy_match_id) : null;
     if (legacyId === null || Number.isNaN(legacyId) || legacyId < 0) ps.setObject(1, null); else ps.setInt(1, Math.floor(legacyId));
-    ps.setInt(2, Math.floor(Number(meta.map_id) || 0));
-    ps.setInt(3, Math.floor(Number(meta.mode_id) || 0));
-    ps.setString(4, String(meta.winner_team || 'tie'));
+    var sessionId = meta.session_id !== undefined && meta.session_id !== null ? Number(meta.session_id) : null;
+    if (sessionId === null || Number.isNaN(sessionId) || sessionId <= 0) ps.setObject(2, null); else ps.setLong(2, Math.floor(sessionId));
+    ps.setInt(3, Math.floor(Number(meta.map_id) || 0));
+    ps.setInt(4, Math.floor(Number(meta.mode_id) || 0));
+    ps.setString(5, String(meta.winner_team || 'tie'));
 
     var started = _gambitFormatUtcDateTime(meta.started_at_ms || null);
     var ended   = _gambitFormatUtcDateTime(meta.ended_at_ms || Date.now());
-    if (started) ps.setString(5, started); else ps.setObject(5, null);
-    if (ended)   ps.setString(6, ended);   else ps.setObject(6, null);
-    ps.setInt(7, Math.floor(Number(meta.duration_seconds) || 0));
-    ps.setString(8, meta.server_instance ? String(meta.server_instance) : 'default');
-    ps.setInt(9, meta.is_tournament ? 1 : 0);
+    if (started) ps.setString(6, started); else ps.setObject(6, null);
+    if (ended)   ps.setString(7, ended);   else ps.setObject(7, null);
+    ps.setInt(8, Math.floor(Number(meta.duration_seconds) || 0));
+    ps.setString(9, meta.server_instance ? String(meta.server_instance) : 'default');
+    ps.setInt(10, meta.is_tournament ? 1 : 0);
 
     ps.executeUpdate();
     ps.close();

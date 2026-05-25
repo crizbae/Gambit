@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "host": "localhost",
+  "port": 3306,
+  "database": "gambit",
+  "username": "gambit",
+  "password": "change-me"
+}

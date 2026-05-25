@@ -692,7 +692,9 @@ ServerEvents.commandRegistry(function(event) {
                     if (caller && caller.tell) {
                       var state = (typeof statsTrackingEnabled !== 'undefined' && statsTrackingEnabled)
                         ? '§aENABLED' : '§cDISABLED';
-                      caller.tell('§6[Gambit Stats] Tracking is currently: ' + state);
+                      var effective = (typeof gambitShouldTrackNormalStats === 'function' && gambitShouldTrackNormalStats())
+                        ? '§aACTIVE' : '§cPAUSED';
+                      caller.tell('§6[Gambit Stats] Tracking preference: ' + state + ' §7| Effective normal stats: ' + effective);
                     }
                     return 1;
                   })
@@ -807,6 +809,69 @@ ServerEvents.commandRegistry(function(event) {
       )
   );
 
+  // ── DB-backed stat sessions ───────────────────────────────
+  event.register(
+    Commands.literal('startsession')
+      .requires(function(src) { return src.hasPermission(2); })
+      .executes(function(ctx) {
+        var actor = ctx.source.player && ctx.source.player.name ? ctx.source.player.name.string : 'server';
+        if (typeof gambitDbIsEnabled !== 'function' || !gambitDbIsEnabled() || typeof gambitDbStartSession !== 'function') {
+          if (ctx.source.player) ctx.source.player.tell('§c[Gambit Session] MySQL is required but unavailable.');
+          return 0;
+        }
+        var result = gambitDbStartSession('', actor);
+        if (!result.ok) {
+          if (ctx.source.player) ctx.source.player.tell('§c[Gambit Session] ' + result.error);
+          return 0;
+        }
+        ctx.source.server.runCommandSilent(
+          'tellraw @a ["",{"text":"[Gambit Session] ","color":"gold"},{"text":"Session started.","color":"green"}]'
+        );
+        return 1;
+      })
+      .then(
+        Commands.argument('label', StringArgumentType.word())
+          .executes(function(ctx) {
+            var actor = ctx.source.player && ctx.source.player.name ? ctx.source.player.name.string : 'server';
+            if (typeof gambitDbIsEnabled !== 'function' || !gambitDbIsEnabled() || typeof gambitDbStartSession !== 'function') {
+              if (ctx.source.player) ctx.source.player.tell('§c[Gambit Session] MySQL is required but unavailable.');
+              return 0;
+            }
+            var label = StringArgumentType.getString(ctx, 'label');
+            var result = gambitDbStartSession(label, actor);
+            if (!result.ok) {
+              if (ctx.source.player) ctx.source.player.tell('§c[Gambit Session] ' + result.error);
+              return 0;
+            }
+            ctx.source.server.runCommandSilent(
+              'tellraw @a ["",{"text":"[Gambit Session] ","color":"gold"},{"text":"Session started: ","color":"green"},{"text":"' + String(label).replace(/"/g, '') + '","color":"aqua"}]'
+            );
+            return 1;
+          })
+      )
+  );
+
+  event.register(
+    Commands.literal('endsession')
+      .requires(function(src) { return src.hasPermission(2); })
+      .executes(function(ctx) {
+        var actor = ctx.source.player && ctx.source.player.name ? ctx.source.player.name.string : 'server';
+        if (typeof gambitDbIsEnabled !== 'function' || !gambitDbIsEnabled() || typeof gambitDbEndSession !== 'function') {
+          if (ctx.source.player) ctx.source.player.tell('§c[Gambit Session] MySQL is required but unavailable.');
+          return 0;
+        }
+        var result = gambitDbEndSession(actor);
+        if (!result.ok) {
+          if (ctx.source.player) ctx.source.player.tell('§c[Gambit Session] ' + result.error);
+          return 0;
+        }
+        ctx.source.server.runCommandSilent(
+          'tellraw @a ["",{"text":"[Gambit Session] ","color":"gold"},{"text":"Session ended.","color":"yellow"}]'
+        );
+        return 1;
+      })
+  );
+
   // ── gambit_log_match ──────────────────────────────────────
   // Called from win/tie mcfunctions: gambit_log_match red|blue|tie
   event.register(
@@ -820,7 +885,7 @@ ServerEvents.commandRegistry(function(event) {
             if (winner !== 'red' && winner !== 'blue' && winner !== 'tie') return 0;
 
             // Skip all stat recording when tracking is disabled.
-            if (typeof statsTrackingEnabled !== 'undefined' && !statsTrackingEnabled) {
+            if (typeof gambitShouldTrackNormalStats === 'function' && !gambitShouldTrackNormalStats()) {
               // Clear staged analytics buffers so they don't leak into a later tracked match.
               if (typeof gambitGetPendingVoteRowsForMatch === 'function') gambitGetPendingVoteRowsForMatch();
               if (typeof gambitCollectKitUsageRowsForAnalytics === 'function') gambitCollectKitUsageRowsForAnalytics(server);
@@ -896,6 +961,7 @@ ServerEvents.commandRegistry(function(event) {
               if (typeof gambitDbInsertAnalyticsMatch === 'function') {
                 var analyticsMatchId = gambitDbInsertAnalyticsMatch({
                   legacy_match_id: dbMatchId >= 0 ? dbMatchId : null,
+                  session_id: (typeof gambitDbGetActiveSessionId === 'function' ? gambitDbGetActiveSessionId() : null),
                   map_id: mapId,
                   mode_id: modeId,
                   winner_team: winner,

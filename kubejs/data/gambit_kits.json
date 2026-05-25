@@ -1,0 +1,104 @@
+{
+  "kits": [
+    {
+      "id": "marksman",
+      "display": "Marksman",
+      "color": "blue",
+      "selector": {
+        "top": "blue_stained_glass",
+        "middle": "sea_lantern",
+        "bottom": "dried_kelp_block"
+      }
+    },
+    {
+      "id": "breacher",
+      "display": "Breacher",
+      "color": "gold",
+      "selector": {
+        "top": "orange_stained_glass",
+        "middle": "honeycomb_block",
+        "bottom": "dried_kelp_block"
+      }
+    },
+    {
+      "id": "flanker",
+      "display": "Flanker",
+      "color": "aqua",
+      "selector": {
+        "top": "light_blue_stained_glass",
+        "middle": "prismarine",
+        "bottom": "dried_kelp_block"
+      }
+    },
+    {
+      "id": "assault",
+      "display": "Assault",
+      "color": "red",
+      "selector": {
+        "top": "red_stained_glass",
+        "middle": "shroomlight",
+        "bottom": "dried_kelp_block"
+      }
+    },
+    {
+      "id": "sniper",
+      "display": "Sniper",
+      "color": "dark_purple",
+      "selector": {
+        "top": "purple_stained_glass",
+        "middle": "pearlescent_froglight",
+        "bottom": "dried_kelp_block"
+      }
+    },
+    {
+      "id": "ranger",
+      "display": "Ranger",
+      "color": "green",
+      "selector": {
+        "top": "lime_stained_glass",
+        "middle": "verdant_froglight",
+        "bottom": "dried_kelp_block"
+      }
+    },
+    {
+      "id": "burst",
+      "display": "Burst",
+      "color": "yellow",
+      "selector": {
+        "top": "yellow_stained_glass",
+        "middle": "glowstone",
+        "bottom": "dried_kelp_block"
+      }
+    },
+    {
+      "id": "sentry",
+      "display": "Sentry",
+      "color": "light_purple",
+      "selector": {
+        "top": "pink_stained_glass",
+        "middle": "pink_glazed_terracotta",
+        "bottom": "dried_kelp_block"
+      }
+    },
+    {
+      "id": "covert",
+      "display": "Covert",
+      "color": "#964B00",
+      "selector": {
+        "top": "brown_stained_glass",
+        "middle": "ochre_froglight",
+        "bottom": "dried_kelp_block"
+      }
+    },
+    {
+      "id": "gunslinger",
+      "display": "Gunslinger",
+      "color": "dark_green",
+      "selector": {
+        "top": "green_stained_glass",
+        "middle": "bamboo_block",
+        "bottom": "dried_kelp_block"
+      }
+    }
+  ]
+}

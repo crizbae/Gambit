@@ -1,5 +1,6 @@
 # Database credentials
 kubejs/data/gambit_db_config.json
+kubejs/data/gambit_stats.json
 
 # Backup files
 kubejs/data/gambit_stats.json.bak

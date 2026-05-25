@@ -1,6 +1,6 @@
 # Gambit
 
-Gambit is a Minecraft PvP minigame system built with a datapack and KubeJS server scripts. It adds structured team matches, map rotation, kit selection, post-game flow, player statistics, and optional tournament controls for small-format competitive play.
+Gambit is a Minecraft PvP minigame system built with a datapack, KubeJS server scripts, and a MySQL-backed stats store. It adds structured team matches, map rotation, kit selection, post-game flow, player statistics, analytics, and tournament controls for small-format competitive play.
 
 ## Features
 
@@ -10,7 +10,7 @@ Gambit is a Minecraft PvP minigame system built with a datapack and KubeJS serve
 - Kit selectors and per-kit loadouts
 - Down/revive/finisher gameplay loop
 - Player stats, leaderboards, match history, and in-world billboard support
-- Optional MySQL persistence and analytics tables
+- MySQL-backed persistence and analytics tables
 - Tournament mode with manual rosters and participant-only match starts
 - In-game field manual for player-facing commands and rules
 
@@ -34,7 +34,7 @@ kubejs/
 - KubeJS installed on the server
 - TACZ for the gun and weapon system used by Gambit loadouts
 - PlayerRevive by CreativeMD for the revive-focused down system
-- Optional: MySQL plus a MySQL JDBC connector JAR for persistent stats and analytics
+- MySQL plus a MySQL JDBC connector JAR for persistent stats and analytics
 
 ## Core Mod Dependencies
 
@@ -55,7 +55,7 @@ Gambit is hosted as a community event. If you are interested in playing, joining
 3. Restart the server, or reload datapacks and KubeJS scripts if your environment supports it.
 4. Confirm the datapack is enabled with `/datapack list`.
 
-For database-backed stats, create `kubejs/data/gambit_db_config.json` on the server with your MySQL connection settings and place `mysql-connector-j-*.jar` under `libraries/com/mysql/mysql-connector-j/<version>/`.
+For stats and analytics, create `kubejs/data/gambit_db_config.json` on the server from `kubejs/data/gambit_db_config.example.json` with your MySQL connection settings and place `mysql-connector-j-*.jar` under `libraries/com/mysql/mysql-connector-j/<version>/`. Local JSON is treated as an emergency backup, not the primary stats architecture.
 
 ## Common Commands
 
@@ -78,6 +78,8 @@ Operator commands:
 ## Development Notes
 
 - Add or update playable maps in `kubejs/server_scripts/gambit_maps.js`.
+- Add or update kits in `kubejs/data/gambit_kits.json`, then run `node scripts/generate_gambit_functions.js` to refresh generated selector, kit, range, lobby, and start functions.
+- Use `node scripts/generate_gambit_functions.js --check` to verify generated datapack functions are current.
 - Gameplay command registration is centralized in `kubejs/server_scripts/gambit_commands.js`.
-- Stats and persistence logic live in `kubejs/server_scripts/gambit_stats.js`, `gambit_tracker.js`, and `gambit_db.js`.
+- Stats, persistence, and analytics logic live in `kubejs/server_scripts/gambit_stats.js`, `gambit_tracker.js`, and `gambit_db.js`; MySQL is the core store for this layer.
 - Datapack functions in `GunFight/data/gun/functions` coordinate the vanilla command-side match flow.

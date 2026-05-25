@@ -60,6 +60,11 @@ var statsTrackingEnabled = (function() {
   return true; // default on
 })();
 
+function gambitShouldTrackNormalStats() {
+  if (typeof tournamentMode !== 'undefined' && tournamentMode) return false;
+  return (typeof statsTrackingEnabled === 'undefined' || statsTrackingEnabled);
+}
+
 function _saveDevConfig() {
   try {
     var _cfg = {};
@@ -570,7 +575,7 @@ function applyMatchResult(server, targetArg, addMatch, addWin) {
 
   // Respect stat tracking gate — this is called automatically from win mcfunctions
   // (stats/match_all, stats/win_red, stats/win_blue) as well as by OP commands.
-  if (typeof statsTrackingEnabled !== 'undefined' && !statsTrackingEnabled) return { count: 0, mode: null };
+  if (!gambitShouldTrackNormalStats()) return { count: 0, mode: null };
 
   var target = String(targetArg).toLowerCase();
   var mode = null;
@@ -710,7 +715,23 @@ function sessionMetricValue(s, metric) {
   return NaN;
 }
 
+function getDbActiveSessionEntriesIfAvailable() {
+  if (typeof gambitDbIsEnabled !== 'function' || !gambitDbIsEnabled()) return null;
+  if (typeof gambitDbGetActiveSessionEntries !== 'function') return null;
+  return gambitDbGetActiveSessionEntries();
+}
+
 function getSortedEntriesBySessionMetric(metric) {
+  var dbRows = getDbActiveSessionEntriesIfAvailable();
+  if (dbRows !== null) {
+    dbRows.sort(function(a, b) {
+      var primary = sessionMetricValue(b[1], metric) - sessionMetricValue(a[1], metric);
+      if (primary !== 0) return primary;
+      return sessionMetricValue(b[1], 'kd') - sessionMetricValue(a[1], 'kd');
+    });
+    return dbRows;
+  }
+
   var today = getTodayDateString();
   var keys  = Object.keys(stats);
   var arr   = [];
@@ -813,6 +834,9 @@ function _sessionCombinedScore(s) {
 }
 
 function _getSessionEntriesToday() {
+  var dbRows = getDbActiveSessionEntriesIfAvailable();
+  if (dbRows !== null) return dbRows;
+
   var today = getTodayDateString();
   var keys  = Object.keys(stats);
   var byName = {};
@@ -849,6 +873,16 @@ function _getSessionEntriesToday() {
 }
 
 function getSortedEntriesBySessionElimScore() {
+  var dbRows = getDbActiveSessionEntriesIfAvailable();
+  if (dbRows !== null) {
+    var dbElim = [];
+    for (var dbi = 0; dbi < dbRows.length; dbi++) {
+      if ((dbRows[dbi][1].elim_matches || 0) > 0) dbElim.push(dbRows[dbi]);
+    }
+    dbElim.sort(function(a, b) { return _sessionElimScore(b[1]) - _sessionElimScore(a[1]); });
+    return dbElim;
+  }
+
   var today = getTodayDateString();
   var keys = Object.keys(stats);
   var byName = {};
@@ -875,6 +909,16 @@ function getSortedEntriesBySessionElimScore() {
   return arr;
 }
 function getSortedEntriesBySessionTdmScore() {
+  var dbRows = getDbActiveSessionEntriesIfAvailable();
+  if (dbRows !== null) {
+    var dbTdm = [];
+    for (var dbi = 0; dbi < dbRows.length; dbi++) {
+      if ((dbRows[dbi][1].tdm_matches || 0) > 0) dbTdm.push(dbRows[dbi]);
+    }
+    dbTdm.sort(function(a, b) { return _sessionTdmScore(b[1]) - _sessionTdmScore(a[1]); });
+    return dbTdm;
+  }
+
   var today = getTodayDateString();
   var keys = Object.keys(stats);
   var byName = {};
@@ -1072,7 +1116,7 @@ function broadcastPostGameScoreboard(server) {
     _pp.tell(_perfDivider);
 
     // Update session stats (gated on stat tracking; map name is not required for session)
-    if (typeof statsTrackingEnabled === 'undefined' || statsTrackingEnabled) {
+    if (gambitShouldTrackNormalStats()) {
       loadEntryFromPlayer(_pp);
       var _entry = getEntry(_pname);
       // Session: accumulate kills/deaths/damage/assists
@@ -1285,7 +1329,11 @@ function loadStatsFromDisk() {
     }
   }
 
-  // Fall back to JSON
+  if (typeof gambitDbIsRequired === 'function' && gambitDbIsRequired()) {
+    console.warn('[Gambit Stats] MySQL is the primary stats store, but DB load was unavailable or empty. Falling back to JSON backup.');
+  }
+
+  // Emergency fallback to JSON. MySQL remains the primary stats and analytics store.
   try {
     var parsed = JsonIO.read(STATS_FILE_PATH);
     if (!parsed) return false;
@@ -1298,7 +1346,7 @@ function loadStatsFromDisk() {
       if (isUuidKey(keys[i])) uuidByName[_le.name.toLowerCase()] = keys[i];
     }
     stats = loaded;
-    // Auto-migrate existing JSON data into MySQL on first run
+    // Auto-migrate existing JSON data into MySQL on first run.
     if (typeof gambitDbIsEnabled === 'function' && gambitDbIsEnabled() && keys.length > 0) {
       console.info('[Gambit Stats] Migrating ' + keys.length + ' player(s) from JSON to MySQL...');
       gambitDbSaveAllStats(stats);
@@ -1333,12 +1381,12 @@ function saveStatsToDisk() {
       try { JsonIO.write(STATS_FILE_PATH + '.bak', existing); } catch (bakErr) {}
     }
 
-    // Persist to MySQL when enabled
+    // Persist to MySQL as the primary stats store when enabled.
     if (typeof gambitDbIsEnabled === 'function' && gambitDbIsEnabled()) {
       gambitDbSaveAllStats(stats);
     }
 
-    // Always write JSON as a local backup
+    // Always write JSON as a local emergency backup.
     JsonIO.write(STATS_FILE_PATH, stats);
     statsDirty    = false;
     statsSaveTicker = 0;

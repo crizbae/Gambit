@@ -749,10 +749,13 @@ ServerEvents.loaded(function(event) {
   _removeVotePapers(event.server);
 
   if (typeof gambitDbIsEnabled === 'function' && gambitDbIsEnabled() && typeof gambitDbSyncDimensions === 'function') {
-    var _kits = ['assault', 'breacher', 'burst', 'flanker', 'marksman', 'ranger', 'sniper', 'sentry', 'covert'];
-    if (typeof VALID_KITS !== 'undefined' && VALID_KITS && VALID_KITS.length) {
-      for (var _ki = 0; _ki < VALID_KITS.length; _ki++) {
-        var _kk = String(VALID_KITS[_ki]);
+    var _kits = [];
+    var _sourceKits = (typeof GAMBIT_KIT_KEYS !== 'undefined' && GAMBIT_KIT_KEYS.length)
+      ? GAMBIT_KIT_KEYS
+      : ['marksman', 'breacher', 'flanker', 'assault', 'sniper', 'ranger', 'burst', 'sentry', 'covert', 'gunslinger'];
+    if (_sourceKits && _sourceKits.length) {
+      for (var _ki = 0; _ki < _sourceKits.length; _ki++) {
+        var _kk = String(_sourceKits[_ki]);
         if (_kits.indexOf(_kk) === -1) _kits.push(_kk);
       }
     }

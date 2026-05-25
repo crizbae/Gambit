@@ -15,8 +15,10 @@ var ATTACKER_CACHE_CLEANUP_INTERVAL_TICKS = 200;
 
 // ── Canonical kit list (Item 3) ───────────────────────────────
 // Single source of truth for JS. Used by loggedOut cleanup.
-var VALID_KITS = ['assault', 'breacher', 'burst', 'flanker', 'marksman', 'ranger', 'sniper', 'sentry', 'covert', 'gunslinger'];
-var ANALYTICS_KITS = ['assault', 'breacher', 'burst', 'flanker', 'marksman', 'ranger', 'sniper', 'sentry', 'covert', 'gunslinger'];
+var VALID_KITS = (typeof GAMBIT_KIT_KEYS !== 'undefined' && GAMBIT_KIT_KEYS.length)
+  ? GAMBIT_KIT_KEYS.slice(0)
+  : ['marksman', 'breacher', 'flanker', 'assault', 'sniper', 'ranger', 'burst', 'sentry', 'covert', 'gunslinger'];
+var ANALYTICS_KITS = VALID_KITS.slice(0);
 
 // ── Runtime tracking state ────────────────────────────────────
 var recentPlayerAttackers = {};
@@ -283,10 +285,13 @@ function cleanupExpiredAttackerCache() {
 
 // ── Server loaded ─────────────────────────────────────────────
 ServerEvents.loaded(function(event) {
-  // Initialize MySQL connection if configured
+  // Initialize the primary MySQL stats and analytics store.
   if (typeof gambitDbIsEnabled === 'function' && gambitDbIsEnabled()) {
     gambitDbConnect();
     gambitDbInitTables();
+    if (typeof gambitDbRequireReady === 'function') gambitDbRequireReady('server load');
+  } else if (typeof gambitDbIsRequired === 'function' && gambitDbIsRequired()) {
+    console.error('[Gambit DB] MySQL is required for Gambit stats and analytics. Normal stats should be considered degraded until DB is available.');
   }
 
   var loaded = loadStatsFromDisk();
@@ -569,7 +574,7 @@ ServerEvents.tick(function(event) {
             if ((_dx*_dx + _dy*_dy + _dz*_dz) <= 16) { _creditedRdName = _rdName; break; }
           }
           if (_creditedRdName) {
-            if (typeof statsTrackingEnabled === 'undefined' || statsTrackingEnabled) {
+            if (typeof gambitShouldTrackNormalStats !== 'function' || gambitShouldTrackNormalStats()) {
               loadEntryFromPlayer(p);
               var reviverEntry = getEntry(pName);
               reviverEntry.revives = (reviverEntry.revives || 0) + 1;
@@ -663,11 +668,11 @@ EntityEvents.hurt(function(event) {
         var roundEntry   = getRoundEntry(shooterName);
         // Cap to remaining health to avoid overkill inflation
         var actualDamage = Math.min(damage, entity.health);
-        if (typeof statsTrackingEnabled === 'undefined' || statsTrackingEnabled) entry.damage += actualDamage;
+        if (typeof gambitShouldTrackNormalStats !== 'function' || gambitShouldTrackNormalStats()) entry.damage += actualDamage;
         roundEntry.damage += actualDamage;
         var _dmgInt = Math.floor(actualDamage);
         if (_dmgInt > 0) event.server.runCommandSilent('scoreboard players add ' + shooterName + ' life_dmg ' + _dmgInt);
-        if (typeof statsTrackingEnabled === 'undefined' || statsTrackingEnabled) saveEntryToPlayer(shooter);
+        if (typeof gambitShouldTrackNormalStats !== 'function' || gambitShouldTrackNormalStats()) saveEntryToPlayer(shooter);
       }
       if (entity && entity.player) {
         // Only track cross-team hits — skip friendly fire so teammates can't
@@ -829,7 +834,7 @@ EntityEvents.death(function(event) {
 
   if (typeof matchActive === 'undefined' || matchActive) {
     var entry      = getEntry(deadName);
-    if (typeof statsTrackingEnabled === 'undefined' || statsTrackingEnabled) {
+    if (typeof gambitShouldTrackNormalStats !== 'function' || gambitShouldTrackNormalStats()) {
       entry.deaths += 1;
       var _dMode = (typeof currentModeId !== 'undefined') ? currentModeId : -1;
       if (_dMode === 1) entry.tdm_deaths  = (entry.tdm_deaths  || 0) + 1;
@@ -837,7 +842,7 @@ EntityEvents.death(function(event) {
     }
     var deadRoundEntry = getRoundEntry(deadName);
     deadRoundEntry.deaths = (deadRoundEntry.deaths || 0) + 1;
-    if (typeof statsTrackingEnabled === 'undefined' || statsTrackingEnabled) saveEntryToPlayer(dead);
+    if (typeof gambitShouldTrackNormalStats !== 'function' || gambitShouldTrackNormalStats()) saveEntryToPlayer(dead);
   }
 
   // Finisher execution has priority — direct kill attribution.
@@ -913,7 +918,7 @@ EntityEvents.death(function(event) {
 
   var killerEntry      = getEntry(killerName);
   var killerRoundEntry = getRoundEntry(killerName);
-  if (typeof statsTrackingEnabled === 'undefined' || statsTrackingEnabled) {
+  if (typeof gambitShouldTrackNormalStats !== 'function' || gambitShouldTrackNormalStats()) {
     killerEntry.kills += 1;
     var _kMode = (typeof currentModeId !== 'undefined') ? currentModeId : -1;
     if (_kMode === 1) killerEntry.tdm_kills  = (killerEntry.tdm_kills  || 0) + 1;
@@ -973,7 +978,7 @@ EntityEvents.death(function(event) {
     event.server.runCommandSilent('execute as ' + killerName + ' at @s run playsound minecraft:entity.horse.land master @s ~ ~ ~ 1.5 2');
     event.server.runCommandSilent('execute as ' + killerName + ' at @s run playsound minecraft:entity.experience_orb.pickup master @s ~ ~ ~ 1.5 2');
   }
-  if (typeof statsTrackingEnabled === 'undefined' || statsTrackingEnabled) {
+  if (typeof gambitShouldTrackNormalStats !== 'function' || gambitShouldTrackNormalStats()) {
     if (streak > (killerEntry.longest_streak || 0)) killerEntry.longest_streak = streak;
     if (!killerEntry.session || killerEntry.session.date !== getTodayDateString()) killerEntry.session = makeDefaultSession();
     if (streak > (killerEntry.session.longest_streak || 0)) killerEntry.session.longest_streak = streak;
@@ -1004,7 +1009,7 @@ EntityEvents.death(function(event) {
     killerPlayer.give(Item.of('minecraft:golden_carrot', 4, '{display:{Name:\'{"text":"Golden Rations","italic":false}\'}}'));
   }
 
-  if (typeof statsTrackingEnabled === 'undefined' || statsTrackingEnabled) {
+  if (typeof gambitShouldTrackNormalStats !== 'function' || gambitShouldTrackNormalStats()) {
     markStatsDirty();
     if (killerPlayer) saveEntryToPlayer(killerPlayer);
   }
@@ -1020,10 +1025,10 @@ EntityEvents.death(function(event) {
     var _assistorPlayer = getOnlinePlayerByName(event.server, _assistorName);
     if (_assistorPlayer) loadEntryFromPlayer(_assistorPlayer);
     var _assistorEntry      = getEntry(_assistorName);
-    if (typeof statsTrackingEnabled === 'undefined' || statsTrackingEnabled) _assistorEntry.assists = (_assistorEntry.assists || 0) + 1;
+    if (typeof gambitShouldTrackNormalStats !== 'function' || gambitShouldTrackNormalStats()) _assistorEntry.assists = (_assistorEntry.assists || 0) + 1;
     var _assistorRoundEntry = getRoundEntry(_assistorName);
     _assistorRoundEntry.assists = (_assistorRoundEntry.assists || 0) + 1;
-    if (typeof statsTrackingEnabled === 'undefined' || statsTrackingEnabled) {
+    if (typeof gambitShouldTrackNormalStats !== 'function' || gambitShouldTrackNormalStats()) {
       markStatsDirty();
       if (_assistorPlayer) saveEntryToPlayer(_assistorPlayer);
     }

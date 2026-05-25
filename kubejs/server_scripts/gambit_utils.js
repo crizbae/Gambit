@@ -24,8 +24,8 @@
 //   entityFrameLocked = true. Locked on server start and match start; unlocked by /devmode.
 //
 // Container/block protection:
-//   Chests, trapped chests, barrels, shulker boxes, trapdoors, fence gates, and signs cannot be interacted
-//   with while containerLocked = true. Locked on server start and match start; unlocked by /devmode.
+//   Containers are blocked by YAWP's access-container flag while KubeJS blocks decorative
+//   interactables like trapdoors, fence gates, signs, and beds. Doors remain usable.
 //
 //   /deathmatch    - Apply glowing to all living active players (OP only).
 //
@@ -60,11 +60,7 @@ BlockEvents.rightClicked(function (event) {
     return;
   }
   if (!containerLocked) return;
-  if (id === 'minecraft:chest'
-      || id === 'minecraft:trapped_chest'
-      || id === 'minecraft:barrel'
-      || id.indexOf('shulker_box') !== -1
-      || id === 'minecraft:anvil'
+  if (id === 'minecraft:anvil'
       || id === 'minecraft:chipped_anvil'
       || id === 'minecraft:damaged_anvil'
       || id.indexOf('trapdoor') !== -1
@@ -177,6 +173,7 @@ ServerEvents.loaded(function(event) {
 
   // Persistent event server settings — applied at load so they're active from the start
   event.server.runCommandSilent('yawp global add flag item-drop Denied');
+  event.server.runCommandSilent('yawp global add flag access-container Denied');
   event.server.runCommandSilent('gamerule keepInventory true');
   event.server.runCommandSilent('gamerule reducedDebugInfo true');
   event.server.runCommandSilent('gamerule showDeathMessages false');
@@ -303,8 +300,11 @@ ServerEvents.commandRegistry(function(event) {
     Commands.literal('lockserver')
       .requires(function(src) { return src.hasPermission(2); })
       .executes(function(ctx) {
+        var server = ctx.source.server;
         entityFrameLocked = true;
         containerLocked = true;
+        server.runCommandSilent('yawp global add flag item-drop Denied');
+        server.runCommandSilent('yawp global add flag access-container Denied');
         return 1;
       })
   );
@@ -317,6 +317,7 @@ ServerEvents.commandRegistry(function(event) {
         entityFrameLocked = false;
         containerLocked = false;
         try { server.runCommandSilent('yawp global remove flag item-drop'); } catch (e) {}
+        try { server.runCommandSilent('yawp global remove flag access-container'); } catch (e) {}
         server.runCommandSilent('gamerule reducedDebugInfo false');
         if (ctx.source.player) {
           ctx.source.player.tell('§6[Gambit Dev] §eItem-drop enabled, trapdoors/containers unlocked, debug info visible.');

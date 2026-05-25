@@ -230,7 +230,6 @@ ServerEvents.commandRegistry(function(event) {
     Commands.literal('on')
       .executes(function(ctx) {
         tournamentMode = true;
-        if (typeof statsTrackingEnabled !== 'undefined') statsTrackingEnabled = false;
         _syncTournamentMode(ctx.source.server);
         ctx.source.server.runCommandSilent(
           'tellraw @a ["",{"text":"[Gambit] ","color":"gray"},{"text":"Tournament mode enabled.","color":"gold"}]'
@@ -246,7 +245,6 @@ ServerEvents.commandRegistry(function(event) {
     Commands.literal('off')
       .executes(function(ctx) {
         tournamentMode = false;
-        if (typeof statsTrackingEnabled !== 'undefined') statsTrackingEnabled = true;
         tournamentRedRoster  = [];
         tournamentBlueRoster = [];
         _syncTournamentMode(ctx.source.server);
