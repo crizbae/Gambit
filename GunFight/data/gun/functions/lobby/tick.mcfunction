@@ -14,23 +14,28 @@ execute as @a[team=lobby,tag=!gun_optout,tag=!in_range,gamemode=adventure,tag=co
 execute as @a[team=lobby,tag=!gun_optout,tag=!in_range,gamemode=adventure,tag=gunslinger] run title @s actionbar [{"text":"Kit: ","color":"gray"},{"text":"Gunslinger","color":"dark_green","bold":true}]
 execute as @a[team=lobby,tag=!gun_optout,tag=!in_range,gamemode=adventure,tag=!assault,tag=!breacher,tag=!flanker,tag=!marksman,tag=!sniper,tag=!ranger,tag=!burst,tag=!sentry,tag=!covert,tag=!gunslinger] run title @s actionbar {"text":"No kit currently selected","color":"gray","italic":true}
 
-# Sumo tag: players standing on white or red wool in the sumo arena get the tag
-execute as @a[x=-44,y=102,z=32,dx=13,dy=5,dz=13] at @s if block ~ ~-1 ~ minecraft:white_wool run tag @s add sumo
-execute as @a[x=-44,y=102,z=32,dx=13,dy=5,dz=13] at @s if block ~ ~-1 ~ minecraft:red_wool run tag @s add sumo
+# Keep active match players synced before lobby-only systems run.
+function gun:teams/repair
+
+# Sumo tag: lobby players standing on white or red wool in the sumo arena get the tag
+execute as @a[tag=!Red,tag=!Blue,x=-44,y=102,z=32,dx=13,dy=5,dz=13] at @s if block ~ ~-1 ~ minecraft:white_wool run tag @s add sumo
+execute as @a[tag=!Red,tag=!Blue,x=-44,y=102,z=32,dx=13,dy=5,dz=13] at @s if block ~ ~-1 ~ minecraft:red_wool run tag @s add sumo
 # Reset grace timer while standing on wool
-execute as @a[tag=sumo] at @s if block ~ ~-1 ~ minecraft:white_wool run scoreboard players set @s sumo_grace 0
-execute as @a[tag=sumo] at @s if block ~ ~-1 ~ minecraft:red_wool run scoreboard players set @s sumo_grace 0
+execute as @a[tag=!Red,tag=!Blue,tag=sumo] at @s if block ~ ~-1 ~ minecraft:white_wool run scoreboard players set @s sumo_grace 0
+execute as @a[tag=!Red,tag=!Blue,tag=sumo] at @s if block ~ ~-1 ~ minecraft:red_wool run scoreboard players set @s sumo_grace 0
 # Increment grace for tagged players not standing on wool (covers jumping, knockback, leaving arena)
-execute as @a[tag=sumo] at @s unless block ~ ~-1 ~ minecraft:white_wool unless block ~ ~-1 ~ minecraft:red_wool run scoreboard players add @s sumo_grace 1
+execute as @a[tag=!Red,tag=!Blue,tag=sumo] at @s unless block ~ ~-1 ~ minecraft:white_wool unless block ~ ~-1 ~ minecraft:red_wool run scoreboard players add @s sumo_grace 1
 # Remove tag after 20 ticks (1 second) continuously off wool
 execute as @a[tag=sumo,scores={sumo_grace=20..}] run tag @s remove sumo
 # Sync sumo team from tag (team controls PvP via friendlyFire)
-execute as @a[tag=sumo,team=!sumo] run team join sumo @s
-execute as @a[tag=!sumo,team=sumo] run team join lobby @s
+execute as @a[tag=!Red,tag=!Blue,tag=sumo,team=!sumo] run team join sumo @s
+execute as @a[tag=!Red,tag=!Blue,tag=!sumo,team=sumo] run function gun:teams/join_lobby
 
 effect give @a[team=lobby] saturation 16 1 true
 effect give @a[team=lobby] regeneration 5 1 true
-tag @a[team=lobby] add gun_in_lobby
+tag @a[team=lobby,tag=!Red,tag=!Blue] add gun_in_lobby
+tag @a[tag=Red] remove gun_in_lobby
+tag @a[tag=Blue] remove gun_in_lobby
 tag @a[team=!lobby] remove gun_in_lobby
 effect give @a[team=sumo] saturation 16 1 true
 effect give @a[team=sumo] regeneration 5 25 true

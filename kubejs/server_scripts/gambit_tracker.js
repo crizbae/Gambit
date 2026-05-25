@@ -327,8 +327,12 @@ PlayerEvents.loggedIn(function(event) {
     player.server.runCommandSilent('execute in minecraft:overworld run tp ' + name + ' 0 101 0');
   }
 
-  // Ensure player is in lobby team (covers first-ever login and post-reload edge cases)
-  player.server.runCommandSilent('team join lobby ' + name);
+  // Keep scoreboard team and lobby immunity derived from authoritative Red/Blue tags.
+  if (hasTagSafe(player, 'Red') || hasTagSafe(player, 'Blue')) {
+    player.server.runCommandSilent('function gun:teams/repair');
+  } else {
+    player.server.runCommandSilent('execute as ' + name + ' run function gun:teams/join_lobby');
+  }
 
   // Mid-match join: auto-spectate so the player isn't stranded at spawn.
   if (!player.hasPermissions(2)
@@ -374,9 +378,10 @@ PlayerEvents.loggedOut(function(event) {
 
   var server = player.server;
 
-  // Team tags
+  // Team tags / scoreboard team
   server.runCommandSilent('tag ' + name + ' remove Red');
   server.runCommandSilent('tag ' + name + ' remove Blue');
+  server.runCommandSilent('tag ' + name + ' remove sumo');
 
   // Death / respawn tags
   server.runCommandSilent('tag ' + name + ' remove gun_dead');
@@ -406,6 +411,7 @@ PlayerEvents.loggedOut(function(event) {
 
   // Place back in lobby team
   server.runCommandSilent('team join lobby ' + name);
+  server.runCommandSilent('tag ' + name + ' add gun_in_lobby');
 
   // Persist stats so a restart never loses data for this player.
   // saveEntryToPlayer writes to NBT; saveStatsToDisk flushes to JSON immediately.

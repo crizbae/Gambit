@@ -69,7 +69,6 @@ execute as @a[tag=Blue,gamemode=!creative,gamemode=!spectator] run item replace 
 execute as @a[tag=Blue,gamemode=!creative,gamemode=!spectator] run item replace entity @s hotbar.4 with minecraft:air
 scoreboard objectives setdisplay sidebar
 function gun:countdown/start
-team join red @a[tag=Red]
-team join blue @a[tag=Blue]
+function gun:teams/repair
 schedule clear gun:selectors/loop
 schedule function gun:death/loop 1t

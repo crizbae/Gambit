@@ -31,8 +31,7 @@ effect give @a[gamemode=!creative,gamemode=!spectator,tag=!gun_optout] minecraft
 execute as @a[gamemode=!creative,gamemode=!spectator,tag=!gun_optout] run function gun:rations/give_random_self
 tag @a[gamemode=!creative,gamemode=!spectator,tag=!gun_optout] add gun_in_match
 function gun:countdown/start
-team join red @a[tag=Red,tag=!gun_optout]
-team join blue @a[tag=Blue,tag=!gun_optout]
+function gun:teams/repair
 schedule clear gun:selectors/loop
 execute if score #mode mode_respawns matches 1 run schedule function gun:selectors/loop 1t
 schedule function gun:death/loop 1t

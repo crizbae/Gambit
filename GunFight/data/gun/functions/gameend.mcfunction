@@ -23,13 +23,11 @@ scoreboard players set @a spec_respawn_timer 0
 scoreboard players set @a gun_downs 0
 execute as @a[tag=Red] run clear @s
 execute as @a[tag=Blue] run clear @s
-tag @a remove Blue
-tag @a remove Red
+execute as @a[tag=Red] run function gun:teams/join_lobby
+execute as @a[tag=Blue] run function gun:teams/join_lobby
 effect clear @a minecraft:glowing
 effect give @a regeneration 60 4 true
 effect give @a saturation 1800 0 true
-team join lobby @a[team=red]
-team join lobby @a[team=blue]
 scoreboard players set #selectors selector_active 0
 schedule clear gun:tdm/spawnpoints
 spawnpoint @a 0 101 0

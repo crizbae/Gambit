@@ -91,23 +91,23 @@ function _applyTournamentRosters(server) {
     return;
   }
 
-  // Clear team tags from everyone — no other changes to non-roster players.
-  server.runCommandSilent('tag @a remove Red');
-  server.runCommandSilent('tag @a remove Blue');
+  // Clear active team identity through the canonical lobby path.
+  server.runCommandSilent('execute as @a[tag=Red] run function gun:teams/join_lobby');
+  server.runCommandSilent('execute as @a[tag=Blue] run function gun:teams/join_lobby');
 
   // Apply Red roster
   for (var ri = 0; ri < onlineRedRoster.length; ri++) {
     var rp = onlineRedRoster[ri];
     // Clear gun_optout only for active participants so they enter the match correctly.
     server.runCommandSilent('tag ' + rp + ' remove gun_optout');
-    server.runCommandSilent('tag ' + rp + ' add Red');
+    server.runCommandSilent('execute as ' + rp + ' run function gun:teams/join_red');
   }
 
   // Apply Blue roster
   for (var bi = 0; bi < onlineBlueRoster.length; bi++) {
     var bp = onlineBlueRoster[bi];
     server.runCommandSilent('tag ' + bp + ' remove gun_optout');
-    server.runCommandSilent('tag ' + bp + ' add Blue');
+    server.runCommandSilent('execute as ' + bp + ' run function gun:teams/join_blue');
   }
 
   // Announce rosters
@@ -120,9 +120,8 @@ function _applyTournamentRosters(server) {
     'tellraw @a ["",{"text":"[Tournament] ","color":"gold"},{"text":"Blue: ","color":"aqua"},{"text":"' + blueNames + '","color":"white"}]'
   );
 
-  // Mirror what gun:teams/randomize does post-assignment
-  server.runCommandSilent('team join red @a[tag=Red]');
-  server.runCommandSilent('team join blue @a[tag=Blue]');
+  // Mirror scoreboard teams and lobby immunity from authoritative tags.
+  server.runCommandSilent('function gun:teams/repair');
   server.runCommandSilent('function gun:pleft/build');
   server.runCommandSilent('scoreboard objectives setdisplay sidebar teams');
   server.runCommandSilent('schedule function gun:pleft/loop 20t');

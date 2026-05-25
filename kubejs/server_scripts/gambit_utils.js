@@ -88,9 +88,7 @@ function setOptOutState(player, enabled) {
     var wasInMatch = hasTagSafe(player, 'Red') || hasTagSafe(player, 'Blue');
 
     runForPlayer(player, 'tag @s add ' + OPT_OUT_TAG);
-    runForPlayer(player, 'tag @s remove Red');
-    runForPlayer(player, 'tag @s remove Blue');
-    runForPlayer(player, 'team join lobby @s');
+    runForPlayer(player, 'function gun:teams/join_lobby');
     runForPlayer(player, 'clear @s');
     if (wasInMatch) {
       runForPlayer(player, 'gamemode spectator');
@@ -107,7 +105,7 @@ function setOptOutState(player, enabled) {
   }
 
   runForPlayer(player, 'tag @s remove ' + OPT_OUT_TAG);
-  runForPlayer(player, 'team join lobby @s');
+  runForPlayer(player, 'function gun:teams/join_lobby');
   runForPlayer(player, 'scoreboard players set @s tdm_respawn_timer 0');
   runForPlayer(player, 'scoreboard players set @s spec_respawn_timer 0');
   return true;
