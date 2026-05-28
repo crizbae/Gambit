@@ -1053,7 +1053,7 @@ function gambitDbGetActiveSessionEntries() {
   var conn = gambitDbGetConnection();
   if (!conn) return null;
 
-  var active = gambitDbGetDisplaySession();
+  var active = gambitDbGetActiveSession();
   if (!active) return [];
 
   try {

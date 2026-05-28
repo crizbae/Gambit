@@ -283,6 +283,8 @@ function _giveGuideBook(player) {
       { text: '/stats history\n', color: 'dark_green' },
       { text: 'Recent matches.\n\n', color: 'black' },
       { text: '/stats top <metric>\n', color: 'dark_green' },
+      { text: '/stats top global <m>\n', color: 'dark_green' },
+      { text: '/stats top session <m>\n', color: 'dark_green' },
       { text: 'Top players.\n\n', color: 'black' },
       { text: 'Add a player name to\nsession, global, or\nhistory to inspect.', color: 'black' }
     ]),
@@ -292,54 +294,22 @@ function _giveGuideBook(player) {
       { text: '/stats tdm\n', color: 'dark_green' },
       { text: '/stats combined\n\n', color: 'dark_green' },
       { text: 'Add global or session.\n\n', color: 'black' },
-      { text: 'Metrics: kd, kills,\ndamage, wins, assists,\nstreak, revives.', color: 'black' }
+      { text: 'Metrics: kd, winpct,\nkills, deaths, damage,\nwins, matches, mvps,\ndpl, assists, streak,\nrevives.', color: 'black' }
     ]),
     page([
       { text: 'VOTING\n\n', color: 'dark_blue', bold: true },
-      { text: 'Use the vote discs.\n\n', color: 'black' },
-      { text: 'Fallback commands:\n', color: 'black' },
-      { text: '/gambitvote 1\n', color: 'dark_green' },
-      { text: '/gambitvote 2\n', color: 'dark_green' },
-      { text: '/gambitvote 3\n', color: 'dark_green' },
-      { text: '/gambitvote 4\n\n', color: 'dark_green' },
-      { text: '4 means random map.', color: 'black' }
+      { text: 'Use the vote discs\nafter each match.\n\n', color: 'black' },
+      { text: 'Right-click the disc\nfor the map you want.\n\n', color: 'black' },
+      { text: 'Pigstep means random\nmap.', color: 'black' }
     ]),
     page([
-      { text: 'OP MATCH\n\n', color: 'dark_red', bold: true },
-      { text: '/setmap <map>\n', color: 'dark_green' },
-      { text: '/start\n', color: 'dark_green' },
-      { text: '/setgoal <kills>\n', color: 'dark_green' },
-      { text: '/gambitvote start\n', color: 'dark_green' },
-      { text: '/gambitvote stop\n', color: 'dark_green' },
-      { text: '/gambitvote enable\n', color: 'dark_green' },
-      { text: '/gambitvote disable', color: 'dark_green' }
-    ]),
-    page([
-      { text: 'OP TOURNEY\n\n', color: 'dark_red', bold: true },
-      { text: '/tournament on|off\n', color: 'dark_green' },
-      { text: '/tournament status\n', color: 'dark_green' },
-      { text: '/tournament red <p>\n', color: 'dark_green' },
-      { text: '/tournament blue <p>\n', color: 'dark_green' },
-      { text: '/tournament remove <p>\n', color: 'dark_green' },
-      { text: '/tournament clear|swap', color: 'dark_green' }
-    ]),
-    page([
-      { text: 'OP ADMIN\n\n', color: 'dark_red', bold: true },
-      { text: '/gambitboard\n', color: 'dark_green' },
-      { text: 'Place stat boards.\n\n', color: 'black' },
-      { text: '/stats admin\n', color: 'dark_green' },
-      { text: 'Reset or pause stats.\n\n', color: 'black' },
-      { text: '/gambitdb status\n', color: 'dark_green' },
-      { text: 'Check database.', color: 'black' }
-    ]),
-    page([
-      { text: 'OP TOOLS\n\n', color: 'dark_red', bold: true },
-      { text: '/deathmatch\n', color: 'dark_green' },
-      { text: 'Glow alive players.\n\n', color: 'black' },
-      { text: '/devmode\n', color: 'dark_green' },
-      { text: 'Unlock build tools.\n\n', color: 'black' },
-      { text: '/lockserver\n', color: 'dark_green' },
-      { text: 'Restore locks.', color: 'black' }
+      { text: 'ITEMS\n\n', color: 'dark_blue', bold: true },
+      { text: 'Finisher\n', color: 'dark_red', bold: true },
+      { text: 'Execute downed foes.\n\n', color: 'black' },
+      { text: 'Syringe\n', color: 'aqua', bold: true },
+      { text: 'Revive teammates.\n\n', color: 'black' },
+      { text: 'Pills & Morphine\n', color: 'green', bold: true },
+      { text: 'Healing items come\nwith your kit.', color: 'black' }
     ])
   ];
 
@@ -349,7 +319,11 @@ function _giveGuideBook(player) {
   }
 
   var displayName = '{"text":"Gambit Field Manual","color":"gold","italic":false,"bold":true}';
-  var nbt = '{title:"Gambit Field Manual",author:"Gambit Command",GambitGuideVersion:2,pages:[' + pages.join(',') + '],display:{Name:\'' + displayName + '\'}}';
+  var nbt = '{title:"Gambit Field Manual",author:"Gambit Command",GambitGuideVersion:3,pages:[' + pages.join(',') + '],display:{Name:\'' + displayName + '\'}}';
+  if (playerName && player.server) {
+    player.server.runCommandSilent('item replace entity ' + playerName + ' hotbar.8 with minecraft:written_book' + nbt);
+    return;
+  }
   player.give(Item.of('minecraft:written_book', nbt));
 }
 
@@ -365,10 +339,12 @@ function _hasCurrentGuideBook(player) {
       if (!stack || stack.isEmpty() || String(stack.id) !== 'minecraft:written_book') continue;
       var nbt = stack.nbt;
       if (!nbt) continue;
+      var currentGuide = false;
       try {
-        if (nbt.contains && nbt.contains('GambitGuideVersion') && nbt.getInt('GambitGuideVersion') === 2) return true;
+        if (nbt.contains && nbt.contains('GambitGuideVersion') && nbt.getInt('GambitGuideVersion') === 3) currentGuide = true;
       } catch (_nbtIntErr) {}
-      if (String(nbt).indexOf('GambitGuideVersion:2') !== -1 || String(nbt).indexOf('GambitGuideVersion=2') !== -1) return true;
+      if (String(nbt).indexOf('GambitGuideVersion:3') !== -1 || String(nbt).indexOf('GambitGuideVersion=3') !== -1) currentGuide = true;
+      if (currentGuide && i === 8) return true;
     }
   } catch (_guideCheckErr) {}
   return false;
@@ -824,6 +800,7 @@ ServerEvents.commandRegistry(function(event) {
           if (ctx.source.player) ctx.source.player.tell('§c[Gambit Session] ' + result.error);
           return 0;
         }
+        if (typeof resetAllSessionStats === 'function') resetAllSessionStats(ctx.source.server);
         ctx.source.server.runCommandSilent(
           'tellraw @a ["",{"text":"[Gambit Session] ","color":"gold"},{"text":"Session started.","color":"green"}]'
         );
@@ -843,6 +820,7 @@ ServerEvents.commandRegistry(function(event) {
               if (ctx.source.player) ctx.source.player.tell('§c[Gambit Session] ' + result.error);
               return 0;
             }
+            if (typeof resetAllSessionStats === 'function') resetAllSessionStats(ctx.source.server);
             ctx.source.server.runCommandSilent(
               'tellraw @a ["",{"text":"[Gambit Session] ","color":"gold"},{"text":"Session started: ","color":"green"},{"text":"' + String(label).replace(/"/g, '') + '","color":"aqua"}]'
             );
@@ -865,6 +843,7 @@ ServerEvents.commandRegistry(function(event) {
           if (ctx.source.player) ctx.source.player.tell('§c[Gambit Session] ' + result.error);
           return 0;
         }
+        if (typeof resetAllSessionStats === 'function') resetAllSessionStats(ctx.source.server);
         ctx.source.server.runCommandSilent(
           'tellraw @a ["",{"text":"[Gambit Session] ","color":"gold"},{"text":"Session ended.","color":"yellow"}]'
         );
@@ -1124,8 +1103,11 @@ ServerEvents.commandRegistry(function(event) {
         ctx.source.server.players.forEach(function(p) {
           var name = getPlayerName(p);
           if (!name) return;
-          writeTagNumber(p.persistentData, PD_DOWNS, 0, true);
-          ctx.source.server.runCommandSilent('scoreboard players set ' + name + ' gun_downs 0');
+          if (typeof gambitSetDownCount === 'function') gambitSetDownCount(ctx.source.server, p, 0);
+          else {
+            writeTagNumber(p.persistentData, PD_DOWNS, 0, true);
+            ctx.source.server.runCommandSilent('scoreboard players set ' + name + ' gun_downs 0');
+          }
         });
         currentStreaks    = {};
         downerNames       = {};
@@ -1133,6 +1115,7 @@ ServerEvents.commandRegistry(function(event) {
         executionKillerNames = {};
         syringeCounts     = {};
         recentlyDowned    = {};
+        if (typeof gambitDownCounts !== 'undefined') gambitDownCounts = {};
         roundStats        = {};
         firstBloodDone    = false; // reset for new match
         return 1;
@@ -1151,8 +1134,11 @@ ServerEvents.commandRegistry(function(event) {
             if (!player) return 0;
             var count = IntegerArgumentType.getInteger(ctx, 'count');
             var name  = getPlayerName(player);
-            writeTagNumber(player.persistentData, PD_DOWNS, count, true);
-            ctx.source.server.runCommandSilent('scoreboard players set ' + name + ' gun_downs ' + count);
+            if (typeof gambitSetDownCount === 'function') gambitSetDownCount(ctx.source.server, player, count);
+            else {
+              writeTagNumber(player.persistentData, PD_DOWNS, count, true);
+              ctx.source.server.runCommandSilent('scoreboard players set ' + name + ' gun_downs ' + count);
+            }
             player.tell('§a[Gambit Debug] Down count set to ' + count + ' (max: ' + downsConfig.max_downs + ').');
             return 1;
           })

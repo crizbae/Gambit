@@ -1,0 +1,29 @@
+{
+  "replace": false,
+  "values": [
+    "minecraft:sweet_berry_bush",
+    "minecraft:dead_bush",
+    "minecraft:fern",
+    "minecraft:large_fern",
+    "minecraft:tall_grass",
+    {
+      "id": "minecraft:short_grass",
+      "required": false
+    },
+    {
+      "id": "minecraft:grass",
+      "required": false
+    },
+    {
+      "id": "minecraft:bush",
+      "required": false
+    },
+    "minecraft:vine",
+    "minecraft:glow_lichen",
+    "minecraft:cave_vines",
+    "minecraft:cave_vines_plant",
+    "#minecraft:flowers",
+    "#minecraft:saplings",
+    "#minecraft:crops"
+  ]
+}

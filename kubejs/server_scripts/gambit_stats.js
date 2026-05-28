@@ -65,6 +65,13 @@ function gambitShouldTrackNormalStats() {
   return (typeof statsTrackingEnabled === 'undefined' || statsTrackingEnabled);
 }
 
+function gambitShouldTrackSessionStats() {
+  if (!gambitShouldTrackNormalStats()) return false;
+  if (typeof gambitDbIsEnabled !== 'function' || !gambitDbIsEnabled()) return false;
+  if (typeof gambitDbGetActiveSessionId !== 'function') return false;
+  return gambitDbGetActiveSessionId() !== null;
+}
+
 function _saveDevConfig() {
   try {
     var _cfg = {};
@@ -282,6 +289,26 @@ function resetPlayerSession(playerName) {
   entry.session = makeDefaultSession();
   markStatsDirty();
   return true;
+}
+
+function resetAllSessionStats(server) {
+  var keys = Object.keys(stats);
+  for (var i = 0; i < keys.length; i++) {
+    if (stats[keys[i]]) stats[keys[i]].session = makeDefaultSession();
+  }
+
+  if (server && server.players) {
+    server.players.forEach(function(p) {
+      loadEntryFromPlayer(p);
+      var uuid = String(p.uuid);
+      if (stats[uuid]) {
+        stats[uuid].session = makeDefaultSession();
+        saveEntryToPlayer(p);
+      }
+    });
+  }
+
+  markStatsDirty();
 }
 
 // ── Match history ─────────────────────────────────────────────
@@ -545,12 +572,45 @@ function calcTdmMatchScore(rs, isMvp) {
 function getOnlinePlayerByName(server, playerName) {
   if (!server || !server.players || !playerName) return null;
   var lower = String(playerName).toLowerCase();
-  for (var i = 0; i < server.players.length; i++) {
-    var p = server.players[i];
-    var n = p && p.name && p.name.string ? String(p.name.string).toLowerCase() : '';
-    if (n === lower) return p;
+  var found = null;
+
+  function checkPlayer(p) {
+    if (found || !p) return;
+    var n = p.name && p.name.string ? String(p.name.string).toLowerCase() : '';
+    if (n === lower) found = p;
   }
-  return null;
+
+  try {
+    if (server.players.forEach) {
+      server.players.forEach(function(p) { checkPlayer(p); });
+      if (found) return found;
+    }
+  } catch (_forEachErr) {}
+
+  try {
+    if (typeof server.players.length === 'number') {
+      for (var i = 0; i < server.players.length; i++) checkPlayer(server.players[i]);
+      if (found) return found;
+    }
+  } catch (_lengthErr) {}
+
+  try {
+    if (server.players.size && server.players.get) {
+      var size = server.players.size();
+      for (var j = 0; j < size; j++) checkPlayer(server.players.get(j));
+      if (found) return found;
+    }
+  } catch (_javaListErr) {}
+
+  try {
+    var iter = server.players.iterator ? server.players.iterator() : null;
+    while (iter && iter.hasNext()) {
+      checkPlayer(iter.next());
+      if (found) return found;
+    }
+  } catch (_iterErr) {
+  }
+  return found;
 }
 
 function getExistingStatName(name) {
@@ -594,15 +654,16 @@ function applyMatchResult(server, targetArg, addMatch, addWin) {
       getRoundEntry(p.name.string);
       if (addMatch) e.matches += 1;
       if (addWin)   e.wins   += 1;
-      // Session
-      if (!e.session || e.session.date !== getTodayDateString()) e.session = makeDefaultSession();
-      if (addMatch) {
-        e.session.matches += 1;
-        var _amMode = (typeof currentModeId !== 'undefined') ? currentModeId : -1;
-        if (_amMode === 1) e.session.tdm_matches = (e.session.tdm_matches || 0) + 1;
-        else               e.session.elim_matches = (e.session.elim_matches || 0) + 1;
+      if (gambitShouldTrackSessionStats()) {
+        if (!e.session || e.session.date !== getTodayDateString()) e.session = makeDefaultSession();
+        if (addMatch) {
+          e.session.matches += 1;
+          var _amMode = (typeof currentModeId !== 'undefined') ? currentModeId : -1;
+          if (_amMode === 1) e.session.tdm_matches = (e.session.tdm_matches || 0) + 1;
+          else               e.session.elim_matches = (e.session.elim_matches || 0) + 1;
+        }
+        if (addWin) e.session.wins += 1;
       }
-      if (addWin) e.session.wins += 1;
       saveEntryToPlayer(p);
       count += 1;
     });
@@ -617,15 +678,16 @@ function applyMatchResult(server, targetArg, addMatch, addWin) {
   getRoundEntry(targetPlayer.name.string);
   if (addMatch) entry.matches += 1;
   if (addWin)   entry.wins   += 1;
-  // Session
-  if (!entry.session || entry.session.date !== getTodayDateString()) entry.session = makeDefaultSession();
-  if (addMatch) {
-    entry.session.matches += 1;
-    var _amMode = (typeof currentModeId !== 'undefined') ? currentModeId : -1;
-    if (_amMode === 1) entry.session.tdm_matches = (entry.session.tdm_matches || 0) + 1;
-    else               entry.session.elim_matches = (entry.session.elim_matches || 0) + 1;
+  if (gambitShouldTrackSessionStats()) {
+    if (!entry.session || entry.session.date !== getTodayDateString()) entry.session = makeDefaultSession();
+    if (addMatch) {
+      entry.session.matches += 1;
+      var _amMode = (typeof currentModeId !== 'undefined') ? currentModeId : -1;
+      if (_amMode === 1) entry.session.tdm_matches = (entry.session.tdm_matches || 0) + 1;
+      else               entry.session.elim_matches = (entry.session.elim_matches || 0) + 1;
+    }
+    if (addWin) entry.session.wins += 1;
   }
-  if (addWin) entry.session.wins += 1;
   saveEntryToPlayer(targetPlayer);
   return { count: 1, mode: 'player', playerName: targetPlayer.name.string, entry: entry };
 }
@@ -1115,32 +1177,35 @@ function broadcastPostGameScoreboard(server) {
     _pp.tell('  §cKills: §f' + _kills + '  §6Damage: §f' + _dmg);
     _pp.tell(_perfDivider);
 
-    // Update session stats (gated on stat tracking; map name is not required for session)
     if (gambitShouldTrackNormalStats()) {
       loadEntryFromPlayer(_pp);
       var _entry = getEntry(_pname);
-      // Session: accumulate kills/deaths/damage/assists
-      if (!_entry.session || _entry.session.date !== getTodayDateString()) _entry.session = makeDefaultSession();
-      _entry.session.kills   += (_pe.kills   || 0);
-      _entry.session.deaths  += (_pe.deaths  || 0);
-      _entry.session.damage  += (_pe.damage  || 0.0);
-      _entry.session.assists += (_pe.assists || 0);
       var _isMvp = (mvp && mvp.name && mvp.name === _pname);
-      if (_isMvp) _entry.session.mvps = (_entry.session.mvps || 0) + 1;
-      var _isTdmSession = (_histModeName === 'TDM');
-      if (_isTdmSession) {
-        _entry.session.tdm_kills   = (_entry.session.tdm_kills   || 0) + (_pe.kills   || 0);
-        _entry.session.tdm_deaths  = (_entry.session.tdm_deaths  || 0) + (_pe.deaths  || 0);
-        _entry.session.tdm_damage  = (_entry.session.tdm_damage  || 0) + (_pe.damage  || 0);
-        _entry.session.tdm_assists = (_entry.session.tdm_assists || 0) + (_pe.assists || 0);
-        if (_isMvp) _entry.session.tdm_mvps = (_entry.session.tdm_mvps || 0) + 1;
-      } else {
-        _entry.session.elim_kills   = (_entry.session.elim_kills   || 0) + (_pe.kills   || 0);
-        _entry.session.elim_deaths  = (_entry.session.elim_deaths  || 0) + (_pe.deaths  || 0);
-        _entry.session.elim_damage  = (_entry.session.elim_damage  || 0) + (_pe.damage  || 0);
-        _entry.session.elim_assists = (_entry.session.elim_assists || 0) + (_pe.assists || 0);
-        if (_isMvp) _entry.session.elim_mvps = (_entry.session.elim_mvps || 0) + 1;
+
+      // Update session stats only while an explicit stats session is active.
+      if (gambitShouldTrackSessionStats()) {
+        if (!_entry.session || _entry.session.date !== getTodayDateString()) _entry.session = makeDefaultSession();
+        _entry.session.kills   += (_pe.kills   || 0);
+        _entry.session.deaths  += (_pe.deaths  || 0);
+        _entry.session.damage  += (_pe.damage  || 0.0);
+        _entry.session.assists += (_pe.assists || 0);
+        if (_isMvp) _entry.session.mvps = (_entry.session.mvps || 0) + 1;
+        var _isTdmSession = (_histModeName === 'TDM');
+        if (_isTdmSession) {
+          _entry.session.tdm_kills   = (_entry.session.tdm_kills   || 0) + (_pe.kills   || 0);
+          _entry.session.tdm_deaths  = (_entry.session.tdm_deaths  || 0) + (_pe.deaths  || 0);
+          _entry.session.tdm_damage  = (_entry.session.tdm_damage  || 0) + (_pe.damage  || 0);
+          _entry.session.tdm_assists = (_entry.session.tdm_assists || 0) + (_pe.assists || 0);
+          if (_isMvp) _entry.session.tdm_mvps = (_entry.session.tdm_mvps || 0) + 1;
+        } else {
+          _entry.session.elim_kills   = (_entry.session.elim_kills   || 0) + (_pe.kills   || 0);
+          _entry.session.elim_deaths  = (_entry.session.elim_deaths  || 0) + (_pe.deaths  || 0);
+          _entry.session.elim_damage  = (_entry.session.elim_damage  || 0) + (_pe.damage  || 0);
+          _entry.session.elim_assists = (_entry.session.elim_assists || 0) + (_pe.assists || 0);
+          if (_isMvp) _entry.session.elim_mvps = (_entry.session.elim_mvps || 0) + 1;
+        }
       }
+
       // Write match history only when a map name is available
       if (_histMapName) {
         var _onRed  = hasTagSafe(_pp, 'Red');

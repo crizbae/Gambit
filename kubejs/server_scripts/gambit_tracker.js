@@ -26,9 +26,11 @@ var currentStreaks         = {}; // { playerName: number } — reset on death, n
 var downerNames           = {}; // { deadPlayerName: downerName } — most recent downer (bleed-out kill credit)
 var firstDownerNames      = {}; // { deadPlayerName: downerName } — first downer this life (assist credit)
 var executionKillerNames  = {}; // { deadPlayerName: killerName } — finisher execution attribution for kill credit
+var forcedNormalKillNames = {}; // { deadPlayerName: true } — forced damage that should still be reported as a normal kill
 var executionAnnouncements = {}; // { victimName: expiresAtMs } — avoids duplicate execution feed/FX
 var syringeCounts         = {}; // { playerName: syringe count last poll } — revive tracking
 var recentlyDowned        = {}; // { playerName: expiresAtMs } — window for syringe revive credit
+var gambitDownCounts      = {}; // { playerName: count } — authoritative per-match down counter
 
 // Kit analytics runtime state (built during an active match, flushed at match end).
 var analyticsKitStates = {};        // { playerId: { player_name, player_uuid, kit_key, selected_at_ms, is_initial_pick } }
@@ -116,6 +118,17 @@ function gambitCollectKitUsageRowsForAnalytics(server) {
 function hasPlayerReviveBleeding(entity) {
   if (!entity) return false;
   try {
+    var pd = entity.persistentData;
+    if (pd) {
+      if (pd.getBoolean && pd.getBoolean('playerrevive:bleeding')) return true;
+      if (pd.contains && pd.contains('playerrevive:bleeding')) {
+        if (!pd.getBoolean || pd.getBoolean('playerrevive:bleeding')) return true;
+      }
+      if (pd['playerrevive:bleeding']) return true;
+    }
+  } catch (e1) {}
+
+  try {
     var activeMap = entity.potionEffects && entity.potionEffects.getMap ? entity.potionEffects.getMap() : null;
     if (activeMap && activeMap.entrySet) {
       for (var it = activeMap.entrySet().iterator(); it.hasNext(); ) {
@@ -127,6 +140,62 @@ function hasPlayerReviveBleeding(entity) {
   } catch (e2) {}
 
   return false;
+}
+
+function gambitJavaClass(className) {
+  try {
+    if (typeof Java !== 'undefined' && Java.loadClass) return Java.loadClass(className);
+  } catch (_jlcErr) {}
+  try {
+    if (typeof Java !== 'undefined' && Java.type) return Java.type(className);
+  } catch (_jtErr) {}
+  return null;
+}
+
+function clearPlayerReviveHelperHud(target) {
+  if (!target) return;
+  try {
+    var PlayerReviveServerCls = gambitJavaClass('team.creative.playerrevive.server.PlayerReviveServer');
+    var PlayerReviveCls = gambitJavaClass('team.creative.playerrevive.PlayerRevive');
+    var HelperPacketCls = gambitJavaClass('team.creative.playerrevive.packet.HelperPacket');
+    if (!PlayerReviveServerCls || !PlayerReviveCls || !HelperPacketCls) return;
+
+    var revive = PlayerReviveServerCls.getBleeding(target);
+    if (!revive || !revive.revivingPlayers) return;
+    var helpers = revive.revivingPlayers();
+    if (!helpers || !helpers.iterator) return;
+
+    var packet = new HelperPacketCls(null, false);
+    for (var it = helpers.iterator(); it.hasNext();) {
+      var helper = it.next();
+      try { PlayerReviveCls.NETWORK.sendToClient(packet, helper); } catch (_sendErr) {}
+    }
+    try { helpers.clear(); } catch (_clearErr) {}
+  } catch (_prClearErr) {
+    console.error('[Gambit] Failed to clear PlayerRevive helper HUD: ' + _prClearErr);
+  }
+}
+
+function gambitGetDownCount(player) {
+  var name = getPlayerName(player);
+  var memoryCount = name && typeof gambitDownCounts[name] === 'number'
+    ? Math.floor(gambitDownCounts[name])
+    : 0;
+  var persistentCount = 0;
+  try {
+    persistentCount = Math.floor(readTagNumber(player.persistentData, PD_DOWNS, 0));
+  } catch (_downReadErr) {}
+  return Math.max(0, memoryCount, persistentCount);
+}
+
+function gambitSetDownCount(server, player, count) {
+  var name = getPlayerName(player);
+  if (!name) return;
+  count = Math.max(0, Math.floor(Number(count) || 0));
+  if (count > 0) gambitDownCounts[name] = count;
+  else delete gambitDownCounts[name];
+  try { writeTagNumber(player.persistentData, PD_DOWNS, count, true); } catch (_downWriteErr) {}
+  if (server) server.runCommandSilent('scoreboard players set ' + name + ' gun_downs ' + count);
 }
 
 function announceExecutionFeedAndFx(server, victimName, killerName) {
@@ -352,8 +421,7 @@ PlayerEvents.loggedIn(function(event) {
   }
 
   // Reset down counter on join so a disconnect/reconnect between matches starts clean.
-  writeTagNumber(player.persistentData, PD_DOWNS, 0, true);
-  player.server.runCommandSilent('scoreboard players set ' + name + ' gun_downs 0');
+  gambitSetDownCount(player.server, player, 0);
 
   if (stats[String(player.uuid)]) { saveEntryToPlayer(player); return; }
   loadEntryFromPlayer(player);
@@ -365,14 +433,20 @@ PlayerEvents.loggedIn(function(event) {
 
 // ── Respawn ───────────────────────────────────────────────────
 EntityEvents.spawned('minecraft:player', function(event) {
-  // Reset PD_DOWNS on every spawn/respawn (covers TDM respawns where EntityEvents.death
-  // may have already fired but persistent data can get reloaded with stale values).
   var player = event.entity;
   var name   = player && player.name && player.name.string ? player.name.string : null;
   if (!name) return;
-  writeTagNumber(player.persistentData, PD_DOWNS, 0, true);
-  // Scoreboard is also reset in respawn_player.mcfunction, but belt-and-suspenders.
-  player.server.runCommandSilent('scoreboard players set ' + name + ' gun_downs 0');
+
+  var inActiveMatch = (typeof matchActive !== 'undefined' && matchActive)
+    && (hasTagSafe(player, 'Red') || hasTagSafe(player, 'Blue'));
+  if (inActiveMatch) {
+    var existingDowns = gambitGetDownCount(player);
+    gambitSetDownCount(player.server, player, existingDowns);
+    return;
+  }
+
+  // Outside live match play, a player spawn should start clean.
+  gambitSetDownCount(player.server, player, 0);
 });
 
 // ── Player logout ─────────────────────────────────────────────
@@ -405,6 +479,7 @@ PlayerEvents.loggedOut(function(event) {
   server.runCommandSilent('scoreboard players set ' + name + ' tdm_respawn_timer 0');
   server.runCommandSilent('scoreboard players set ' + name + ' spec_respawn_timer 0');
   server.runCommandSilent('scoreboard players set ' + name + ' gun_downs 0');
+  delete gambitDownCounts[name];
 
   // Reset gamemode, inventory, effects, and spawnpoint (OPs keep their gamemode and inventory)
   if (!player.hasPermissions(2)) {
@@ -432,6 +507,7 @@ PlayerEvents.loggedOut(function(event) {
   delete downerNames[name];
   delete firstDownerNames[name];
   delete executionKillerNames[name];
+  delete forcedNormalKillNames[name];
   delete executionAnnouncements[name];
 });
 
@@ -578,8 +654,10 @@ ServerEvents.tick(function(event) {
               loadEntryFromPlayer(p);
               var reviverEntry = getEntry(pName);
               reviverEntry.revives = (reviverEntry.revives || 0) + 1;
-              if (!reviverEntry.session || reviverEntry.session.date !== getTodayDateString()) reviverEntry.session = makeDefaultSession();
-              reviverEntry.session.revives = (reviverEntry.session.revives || 0) + 1;
+              if (typeof gambitShouldTrackSessionStats === 'function' && gambitShouldTrackSessionStats()) {
+                if (!reviverEntry.session || reviverEntry.session.date !== getTodayDateString()) reviverEntry.session = makeDefaultSession();
+                reviverEntry.session.revives = (reviverEntry.session.revives || 0) + 1;
+              }
               markStatsDirty();
               saveEntryToPlayer(p);
             }
@@ -608,6 +686,17 @@ EntityEvents.hurt(function(event) {
     try { _srcMsgId = String(source.type().msgId()); } catch (e2) {}
   }
   if (_srcMsgId === 'gambit.execution' || _srcMsgId === 'gambit:execution') return;
+
+  // Berry bushes are map dressing, not a match damage source.
+  if (entity && entity.player
+      && (hasTagSafe(entity, 'Red') || hasTagSafe(entity, 'Blue'))
+      && (typeof matchActive === 'undefined' || matchActive)
+      && (_srcMsgId === 'sweetBerryBush'
+          || _srcMsgId === 'minecraft:sweet_berry_bush'
+          || _srcMsgId === 'sweet_berry_bush')) {
+    event.cancel();
+    return;
+  }
 
   // ── Lobby damage immunity ─────────────────────────────────
   if (entity.player && hasTagSafe(entity, 'gun_in_lobby')) {
@@ -638,18 +727,22 @@ EntityEvents.hurt(function(event) {
                  || (hasTagSafe(entity, 'Blue') && hasTagSafe(_fAttacker, 'Red'));
       var _hasBleedingEffect = hasPlayerReviveBleeding(entity);
       var _inDownedWindow = _fVName && recentlyDowned[_fVName] && Date.now() < recentlyDowned[_fVName];
-      // Mirror gun execution flow: sword hit on a downed enemy sends custom execution damage.
+      // Sword hit on a downed enemy should finish through PlayerRevive's final-death
+      // path, not through hurt damage that can be canceled while a helper is attached.
       if (_hurtMatchActive && _fVName && _fKName && _fCross && (_hasBleedingEffect || _inDownedWindow)) {
-        // Record killer attribution for death handler before applying execution damage.
+        // Record killer attribution for death handler before applying the final death.
         executionKillerNames[_fVName] = _fKName;
-        // Suppress vanilla death text for this execution BEFORE applying lethal damage.
+        // Suppress vanilla death text for this execution BEFORE applying final death.
         event.server.runCommandSilent('gamerule showDeathMessages false');
-        // Announce BEFORE applying damage so executionAnnouncements is set when
+        // Announce BEFORE applying final death so executionAnnouncements is set when
         // EntityEvents.death fires synchronously inside the damage command,
         // preventing the death handler's fallback from sending a duplicate message.
         announceExecutionFeedAndFx(event.server, _fVName, _fKName);
-        // Apply execution damage (kills the entity).
+        // Use the custom execution damage source so PlayerRevive's bypass list
+        // skips both its hurt and death interception, even while helpers are reviving.
+        clearPlayerReviveHelperHud(entity);
         event.server.runCommandSilent('damage ' + _fVName + ' 1000 gambit:execution');
+        event.cancel();
       }
       return;
     }
@@ -725,12 +818,9 @@ EntityEvents.hurt(function(event) {
     if (typeof tournamentMode !== 'undefined' && tournamentMode) {
       var tVictimName = entity.name && entity.name.string ? entity.name.string : null;
       if (tVictimName) {
-        var tVictimId   = getPlayerId(entity);
-        var tDowner     = tVictimId ? recentPlayerAttackers[tVictimId] : null;
-        var tDownerName = tDowner ? (tDowner.last || null) : null;
-        if (tDownerName) executionKillerNames[tVictimName] = tDownerName;
-        writeTagNumber(entity.persistentData, PD_DOWNS, 0, true);
-        event.server.runCommandSilent('scoreboard players set ' + tVictimName + ' gun_downs 0');
+        forcedNormalKillNames[tVictimName] = true;
+        gambitSetDownCount(event.server, entity, 0);
+        clearPlayerReviveHelperHud(entity);
         event.server.runCommandSilent('gamerule showDeathMessages false');
         event.server.runCommandSilent('damage ' + tVictimName + ' 1000 gambit:execution');
       }
@@ -741,12 +831,15 @@ EntityEvents.hurt(function(event) {
     if (!downsConfig.enabled || isBypassed) return;
 
     var victimName = entity.name && entity.name.string ? entity.name.string : null;
-    var currentDowns = Math.floor(readTagNumber(entity.persistentData, PD_DOWNS, 0));
+    var currentDowns = gambitGetDownCount(entity);
 
     // Peek at attacker cache (don't consume — EntityEvents.death still needs it).
     var victimId      = getPlayerId(entity);
     var downerCached  = victimId ? recentPlayerAttackers[victimId] : null;
     var downerNameHurt = downerCached ? (downerCached.last || null) : null;
+    if (!downerNameHurt && _fAttacker && _fAttacker.name && _fAttacker.name.string) {
+      downerNameHurt = _fAttacker.name.string;
+    }
 
     // Store downer for bleed-out kill credit (always updated to most recent downer).
     // firstDownerNames is set once per life and never overwritten — used for assist credit.
@@ -763,19 +856,23 @@ EntityEvents.hurt(function(event) {
       }
     }
 
-    // If the player is already in a downed window, do not re-run down-cap execution
-    // logic. Let the incoming damage resolve naturally so vanilla death attribution
-    // (e.g. "was shot by") is preserved for normal finish shots.
-    if (victimName && recentlyDowned[victimName] && Date.now() < recentlyDowned[victimName]) return;
-
-    // If this lethal hit would reach the down cap, execute immediately.
-    if ((currentDowns + 1) >= downsConfig.max_downs && victimName) {
-      // Guard: execution already in flight for this player — skip duplicate trigger.
-      if (executionAnnouncements[victimName] && Date.now() < executionAnnouncements[victimName]) return;
-      if (downerNameHurt) executionKillerNames[victimName] = downerNameHurt;
-      announceExecutionFeedAndFx(event.server, victimName, downerNameHurt);
+    // While the player is actively bleeding, let PlayerRevive own the downed state.
+    // If the revive-credit poll missed the syringe use, clear the stale window once
+    // they are no longer bleeding so the next lethal hit can enforce the down cap.
+    if (victimName && recentlyDowned[victimName] && Date.now() < recentlyDowned[victimName]) {
+      if (hasPlayerReviveBleeding(entity)) return;
       delete recentlyDowned[victimName];
-      // Suppress vanilla death text for this execution before applying lethal damage.
+    }
+
+    // If this lethal hit would reach the down cap, force a final death without
+    // reporting it as a finisher execution.
+    if ((currentDowns + 1) >= downsConfig.max_downs && victimName) {
+      // Guard: forced kill already in flight for this player — skip duplicate trigger.
+      if (executionAnnouncements[victimName] && Date.now() < executionAnnouncements[victimName]) return;
+      forcedNormalKillNames[victimName] = true;
+      delete recentlyDowned[victimName];
+      // Suppress vanilla death text before applying forced lethal damage.
+      clearPlayerReviveHelperHud(entity);
       event.server.runCommandSilent('gamerule showDeathMessages false');
       event.server.runCommandSilent('damage ' + victimName + ' 1000 gambit:execution');
       // Keep vanilla death messages off (custom kill feed is authoritative).
@@ -784,9 +881,8 @@ EntityEvents.hurt(function(event) {
     }
 
     var newDowns = currentDowns + 1;
-    writeTagNumber(entity.persistentData, PD_DOWNS, newDowns, true);
     if (victimName) {
-      event.server.runCommandSilent('scoreboard players set ' + victimName + ' gun_downs ' + newDowns);
+      gambitSetDownCount(event.server, entity, newDowns);
       recentlyDowned[victimName] = Date.now() + DOWNED_WINDOW_MS;
     }
     // Down confirmation sound — played only to the downer.
@@ -810,10 +906,13 @@ EntityEvents.death(function(event) {
   if (!deadName) return;
 
   // PlayerRevive cancels LivingDeathEvent (HIGH priority) before KubeJS sees it,
-  // so this handler only fires for true final deaths: gambit:execution and bled_to_death.
+  // so this handler only fires for true final deaths: forced gambit damage, direct
+  // damage to already-bleeding players, and bled_to_death.
   var sourceId  = '';
   try { sourceId = String(event.source.getMsgId()); } catch (e) {}
-  var isExecution = (sourceId === 'gambit.execution' || sourceId === 'gambit:execution');
+  var isExecutionSource = (sourceId === 'gambit.execution' || sourceId === 'gambit:execution');
+  var isForcedNormalKill = !!forcedNormalKillNames[deadName];
+  var isExecution = isExecutionSource && !isForcedNormalKill;
   var isBleedOut = (sourceId === 'bled_to_death');
   // True when an execution was announced in EntityEvents.hurt but the final death arrived
   // with a non-execution source (e.g. player was in recentlyDowned but not yet in
@@ -829,8 +928,7 @@ EntityEvents.death(function(event) {
   // Cancel any queued execution — they're already dead.
   // (No longer queued since executions now run immediately on hit)
 
-  writeTagNumber(dead.persistentData, PD_DOWNS, 0, true);
-  event.server.runCommandSilent('scoreboard players set ' + deadName + ' gun_downs 0');
+  gambitSetDownCount(event.server, dead, 0);
 
   if (typeof matchActive === 'undefined' || matchActive) {
     var entry      = getEntry(deadName);
@@ -851,8 +949,9 @@ EntityEvents.death(function(event) {
   if (executionKillerNames[deadName]) {
     killerName = executionKillerNames[deadName];
   }
-  // Bleed-out fallback: attacker cache may have expired (bleed timer is 60s, cache TTL is 15s)
-  if ((!killerName || killerName === deadName) && isBleedOut) {
+  // Downer fallback: attacker cache may have expired by final death time, and
+  // PlayerRevive/modded sources do not always report exactly "bled_to_death".
+  if ((!killerName || killerName === deadName) && downerNames[deadName]) {
     killerName = downerNames[deadName] || null;
   }
   // Execution fallback: use the original downer if finisher attribution is unavailable
@@ -872,6 +971,7 @@ EntityEvents.death(function(event) {
   }
 
   delete executionKillerNames[deadName];
+  delete forcedNormalKillNames[deadName];
   delete downerNames[deadName];
   var firstDowner = firstDownerNames[deadName];
   delete firstDownerNames[deadName];
@@ -980,8 +1080,10 @@ EntityEvents.death(function(event) {
   }
   if (typeof gambitShouldTrackNormalStats !== 'function' || gambitShouldTrackNormalStats()) {
     if (streak > (killerEntry.longest_streak || 0)) killerEntry.longest_streak = streak;
-    if (!killerEntry.session || killerEntry.session.date !== getTodayDateString()) killerEntry.session = makeDefaultSession();
-    if (streak > (killerEntry.session.longest_streak || 0)) killerEntry.session.longest_streak = streak;
+    if (typeof gambitShouldTrackSessionStats === 'function' && gambitShouldTrackSessionStats()) {
+      if (!killerEntry.session || killerEntry.session.date !== getTodayDateString()) killerEntry.session = makeDefaultSession();
+      if (streak > (killerEntry.session.longest_streak || 0)) killerEntry.session.longest_streak = streak;
+    }
   }
 
   // Killstreak sound — plays on reward milestones (multiples of 4), only for the killer.

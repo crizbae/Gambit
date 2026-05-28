@@ -69,6 +69,8 @@ Player commands:
 Operator commands:
 
 - `/setmap <preset>` - stage a map
+- `/setmap <preset> variations` - list registered map variations
+- `/setmap <preset> variation <number>` - stage a specific map variation
 - `/start` - start the staged match
 - `/gambitvote start|stop|enable|disable` - manage map voting
 - `/tournament on|off|status|red|blue|remove|clear|swap` - manage tournament rosters

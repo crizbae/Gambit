@@ -24,8 +24,8 @@
 //   entityFrameLocked = true. Locked on server start and match start; unlocked by /devmode.
 //
 // Container/block protection:
-//   Containers are blocked by YAWP's access-container flag while KubeJS blocks decorative
-//   interactables like trapdoors, fence gates, signs, and beds. Doors remain usable.
+//   Containers are blocked by YAWP's access-container flag, and general block use is
+//   blocked by YAWP's use-blocks flag while KubeJS covers specific decorative edges.
 //
 //   /deathmatch    - Apply glowing to all living active players (OP only).
 //
@@ -174,6 +174,7 @@ ServerEvents.loaded(function(event) {
   // Persistent event server settings — applied at load so they're active from the start
   event.server.runCommandSilent('yawp global add flag item-drop Denied');
   event.server.runCommandSilent('yawp global add flag access-container Denied');
+  event.server.runCommandSilent('yawp global add flag use-blocks Denied');
   event.server.runCommandSilent('gamerule keepInventory true');
   event.server.runCommandSilent('gamerule reducedDebugInfo true');
   event.server.runCommandSilent('gamerule showDeathMessages false');
@@ -305,6 +306,7 @@ ServerEvents.commandRegistry(function(event) {
         containerLocked = true;
         server.runCommandSilent('yawp global add flag item-drop Denied');
         server.runCommandSilent('yawp global add flag access-container Denied');
+        server.runCommandSilent('yawp global add flag use-blocks Denied');
         return 1;
       })
   );
@@ -318,6 +320,7 @@ ServerEvents.commandRegistry(function(event) {
         containerLocked = false;
         try { server.runCommandSilent('yawp global remove flag item-drop'); } catch (e) {}
         try { server.runCommandSilent('yawp global remove flag access-container'); } catch (e) {}
+        try { server.runCommandSilent('yawp global remove flag use-blocks'); } catch (e) {}
         server.runCommandSilent('gamerule reducedDebugInfo false');
         if (ctx.source.player) {
           ctx.source.player.tell('§6[Gambit Dev] §eItem-drop enabled, trapdoors/containers unlocked, debug info visible.');

@@ -7,6 +7,7 @@ clear @a[gamemode=!creative,gamemode=!spectator,tag=!gun_optout]
 tag @a[gamemode=!creative,gamemode=!spectator] remove gun_in_lobby
 yawp global add flag item-drop Denied
 yawp global add flag access-container Denied
+yawp global add flag use-blocks Denied
 gamerule keepInventory true
 lockserver
 gamerule reducedDebugInfo true

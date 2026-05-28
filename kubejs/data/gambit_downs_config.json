@@ -1,0 +1,5 @@
+{
+  "enabled": true,
+  "max_downs": 2,
+  "bypass_source_types": []
+}

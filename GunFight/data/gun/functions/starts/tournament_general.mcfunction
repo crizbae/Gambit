@@ -11,6 +11,7 @@ tag @a[tag=Red,gamemode=!creative,gamemode=!spectator] remove gun_in_lobby
 tag @a[tag=Blue,gamemode=!creative,gamemode=!spectator] remove gun_in_lobby
 yawp global add flag item-drop Denied
 yawp global add flag access-container Denied
+yawp global add flag use-blocks Denied
 gamerule keepInventory true
 lockserver
 gamerule reducedDebugInfo true
